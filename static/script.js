@@ -23,14 +23,17 @@ const CFG = {
   LOGOUT_URL:    '/api/auth/logout',
   ME_URL:        '/api/auth/me',
   DB_URL:        '/api/settings/databases',
+  USERS_URL:     '/api/users',
   STORAGE_KEY:   'rag_sessions_v2',
   TOKEN_KEY:     'rag_auth_token',
+  ROLE_KEY:      'rag_auth_role',
+  USER_KEY:      'rag_auth_user',
   MAX_SESSIONS:  60,
   TITLE_MAX_LEN: 46,
 };
 
 /* ================================================================
-   AUTH — token management
+   AUTH — token + role management
    ================================================================ */
 const Auth = {
   getToken() {
@@ -43,6 +46,20 @@ const Auth = {
 
   clearToken() {
     localStorage.removeItem(CFG.TOKEN_KEY);
+    localStorage.removeItem(CFG.ROLE_KEY);
+    localStorage.removeItem(CFG.USER_KEY);
+  },
+
+  getRole() {
+    return localStorage.getItem(CFG.ROLE_KEY) || '';
+  },
+
+  getUsername() {
+    return localStorage.getItem(CFG.USER_KEY) || '';
+  },
+
+  isAdmin() {
+    return this.getRole() === 'admin';
   },
 
   isLoggedIn() {
@@ -64,6 +81,8 @@ const Auth = {
     const json = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(json.detail || `HTTP ${r.status}`);
     this.setToken(json.token);
+    if (json.role)     localStorage.setItem(CFG.ROLE_KEY, json.role);
+    if (json.username) localStorage.setItem(CFG.USER_KEY, json.username);
     return json;
   },
 
@@ -77,11 +96,16 @@ const Auth = {
     this.clearToken();
   },
 
+  /** Verify token and refresh role/username from server. */
   async verify() {
     if (!this.isLoggedIn()) return false;
     try {
       const r = await fetch(CFG.ME_URL, { headers: Auth.headers() });
-      return r.ok;
+      if (!r.ok) return false;
+      const json = await r.json().catch(() => ({}));
+      if (json.role)     localStorage.setItem(CFG.ROLE_KEY, json.role);
+      if (json.username) localStorage.setItem(CFG.USER_KEY, json.username);
+      return true;
     } catch {
       return false;
     }
@@ -250,6 +274,42 @@ const API = {
     if (!r.ok) throw new Error(json.detail || `HTTP ${r.status}`);
     return json;
   },
+
+  // ── User management ─────────────────────────────────────────────
+  async listUsers() {
+    const r = await fetch(CFG.USERS_URL, { headers: Auth.headers() });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  },
+
+  async createUser(data) {
+    const r = await fetch(CFG.USERS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...Auth.headers() },
+      body: JSON.stringify(data),
+    });
+    const json = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(json.detail || `HTTP ${r.status}`);
+    return json;
+  },
+
+  async updateUser(id, data) {
+    const r = await fetch(`${CFG.USERS_URL}/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...Auth.headers() },
+      body: JSON.stringify(data),
+    });
+    const json = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(json.detail || `HTTP ${r.status}`);
+    return json;
+  },
+
+  async deleteUser(id) {
+    const r = await fetch(`${CFG.USERS_URL}/${id}`, { method: 'DELETE', headers: Auth.headers() });
+    const json = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(json.detail || `HTTP ${r.status}`);
+    return json;
+  },
 };
 
 /* ================================================================
@@ -392,7 +452,8 @@ class App {
   constructor() {
     this.currentSessionId = null;
     this.isStreaming = false;
-    this._dbEditingId = null;
+    this._dbEditingId   = null;
+    this._userEditingId = null;
   }
 
   /** Boot: check auth first, then bind events. */
@@ -409,14 +470,40 @@ class App {
 
   _launch() {
     showApp();
+    this._applyRoleVisibility();
+    this._updateUserDisplay();
     this._bindSidebar();
     this._bindComposer();
     this._bindSettings();
     this._bindKnowledgeBase();
     this._bindSuggestions();
     this._renderHistory();
-    this._loadDocs();
+    if (Auth.isAdmin()) this._loadDocs();
     $('chatInput').focus();
+  }
+
+  /** Show or hide elements marked admin-only based on current role. */
+  _applyRoleVisibility() {
+    const isAdmin = Auth.isAdmin();
+    document.querySelectorAll('.admin-only').forEach(el => {
+      el.style.display = isAdmin ? '' : 'none';
+    });
+  }
+
+  /** Populate the sidebar footer with username and role badge. */
+  _updateUserDisplay() {
+    const username = Auth.getUsername();
+    const role     = Auth.getRole();
+    const avatar   = $('sidebarUserAvatar');
+    const nameEl   = $('sidebarUserName');
+    const roleEl   = $('sidebarUserRole');
+
+    if (avatar)  avatar.textContent  = (username[0] || '?').toUpperCase();
+    if (nameEl)  nameEl.textContent  = username || '—';
+    if (roleEl) {
+      roleEl.textContent  = role === 'admin' ? 'Admin' : 'User';
+      roleEl.className    = `sidebar-user-role role-badge role-${role}`;
+    }
   }
 
   /* ── Login ──────────────────────────────────────────────────── */
@@ -893,13 +980,19 @@ class App {
           panel.removeAttribute('aria-hidden');
         }
         if (tab.dataset.tab === 'databases') this._loadDatabases();
+        if (tab.dataset.tab === 'users')     this._loadUsers();
       });
     });
 
-    // DB: add button
+    // DB: add / edit
     $('addDbBtn').addEventListener('click', () => this._showDbForm());
     $('dbFormCancelBtn').addEventListener('click', () => this._hideDbForm());
     $('dbFormSaveBtn').addEventListener('click', () => this._saveDatabase());
+
+    // Users: add / edit
+    $('addUserBtn').addEventListener('click', () => this._showUserForm());
+    $('userFormCancelBtn').addEventListener('click', () => this._hideUserForm());
+    $('userFormSaveBtn').addEventListener('click', () => this._saveUser());
   }
 
   /* ── Database Management ────────────────────────────────────── */
@@ -1061,6 +1154,175 @@ class App {
       }
       this._hideDbForm();
       await this._loadDatabases();
+    } catch (err) {
+      toast(`บันทึกไม่สำเร็จ: ${err.message}`, 'error');
+    } finally {
+      saveBtn.disabled = false;
+    }
+  }
+
+  /* ── User Management ─────────────────────────────────────────── */
+  async _loadUsers() {
+    const list = $('userList');
+    try {
+      const data = await API.listUsers();
+      const users = data.users || [];
+
+      const badge = $('userCountBadge');
+      if (users.length > 0) {
+        badge.textContent = users.length;
+        badge.classList.remove('hidden');
+      } else {
+        badge.classList.add('hidden');
+      }
+
+      if (!users.length) {
+        list.innerHTML = `<div class="db-list-empty">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+          </svg>
+          <p>ยังไม่มีผู้ใช้งาน</p></div>`;
+        return;
+      }
+
+      const me = Auth.getUsername();
+      list.innerHTML = users.map(u => {
+        const roleLabel = u.role === 'admin' ? 'Admin' : 'User';
+        const roleCls   = `role-badge role-${u.role}`;
+        const statusCls = u.enabled ? 'user-status--active' : 'user-status--inactive';
+        const statusTxt = u.enabled ? 'Active' : 'Disabled';
+        const isSelf    = u.username === me;
+        return `
+          <div class="db-item user-item" data-id="${u.id}">
+            <div class="db-item-left">
+              <div class="user-avatar-sm">${(u.display_name || u.username)[0].toUpperCase()}</div>
+              <div class="db-item-info">
+                <div class="db-item-name">
+                  ${esc(u.display_name || u.username)}
+                  ${isSelf ? '<span class="user-self-badge">ฉัน</span>' : ''}
+                </div>
+                <div class="db-item-meta">
+                  <span class="${roleCls}">${roleLabel}</span>
+                  <span class="db-item-url">${esc(u.username)}</span>
+                  <span class="user-status ${statusCls}">${statusTxt}</span>
+                </div>
+              </div>
+            </div>
+            <div class="db-item-actions">
+              <label class="db-toggle" title="${u.enabled ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}">
+                <input type="checkbox" class="db-toggle-input user-toggle-input"
+                  data-user-id="${u.id}" ${u.enabled ? 'checked' : ''} ${isSelf ? 'disabled' : ''} />
+                <span class="db-toggle-track"></span>
+              </label>
+              <button class="db-action-btn db-edit-btn user-edit-btn" data-edit="${u.id}" title="แก้ไข">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+              </button>
+              <button class="db-action-btn db-delete-btn user-delete-btn"
+                data-delete="${u.id}" title="ลบ" ${isSelf ? 'disabled' : ''}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="3 6 5 6 21 6"/>
+                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                  <path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+                </svg>
+              </button>
+            </div>
+          </div>`;
+      }).join('');
+
+      list.querySelectorAll('.user-toggle-input').forEach(chk => {
+        chk.addEventListener('change', async () => {
+          try {
+            await API.updateUser(chk.dataset.userId, { enabled: chk.checked });
+            toast(chk.checked ? 'เปิดใช้งานแล้ว' : 'ปิดใช้งานแล้ว', 'success', 2000);
+            await this._loadUsers();
+          } catch (err) {
+            toast(`ไม่สำเร็จ: ${err.message}`, 'error');
+            chk.checked = !chk.checked;
+          }
+        });
+      });
+
+      list.querySelectorAll('.user-edit-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const u = users.find(x => x.id === btn.dataset.edit);
+          if (u) this._showUserForm(u);
+        });
+      });
+
+      list.querySelectorAll('.user-delete-btn:not([disabled])').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if (!confirm('ต้องการลบผู้ใช้นี้ใช่หรือไม่?')) return;
+          try {
+            await API.deleteUser(btn.dataset.delete);
+            toast('ลบผู้ใช้แล้ว', 'success');
+            await this._loadUsers();
+          } catch (err) {
+            toast(`ลบไม่สำเร็จ: ${err.message}`, 'error');
+          }
+        });
+      });
+
+    } catch (err) {
+      list.innerHTML = `<p class="docs-empty">โหลดข้อมูลไม่สำเร็จ: ${esc(err.message)}</p>`;
+    }
+  }
+
+  _showUserForm(user = null) {
+    const isEdit = !!user;
+    $('userFormTitle').textContent   = isEdit ? 'แก้ไขผู้ใช้' : 'เพิ่มผู้ใช้ใหม่';
+    $('userFormId').value            = isEdit ? user.id : '';
+    $('userFormUsername').value      = isEdit ? user.username : '';
+    $('userFormUsername').disabled   = isEdit;  // cannot change username
+    $('userFormRole').value          = isEdit ? user.role : 'user';
+    $('userFormDisplay').value       = isEdit ? (user.display_name || '') : '';
+    $('userFormPassword').value      = '';
+    $('userFormPassword').placeholder = isEdit ? 'เว้นว่างไว้หากไม่ต้องการเปลี่ยน' : 'อย่างน้อย 6 ตัวอักษร';
+    $('userFormPwLabel').innerHTML   = isEdit
+      ? 'รหัสผ่านใหม่ (เว้นว่างเพื่อคงเดิม)'
+      : 'รหัสผ่าน <span class="required">*</span>';
+    this._userEditingId = isEdit ? user.id : null;
+    $('userForm').classList.remove('hidden');
+    (isEdit ? $('userFormDisplay') : $('userFormUsername')).focus();
+  }
+
+  _hideUserForm() {
+    $('userForm').classList.add('hidden');
+    this._userEditingId = null;
+  }
+
+  async _saveUser() {
+    const username     = $('userFormUsername').value.trim();
+    const role         = $('userFormRole').value;
+    const display_name = $('userFormDisplay').value.trim();
+    const password     = $('userFormPassword').value;
+
+    if (!this._userEditingId && !username) {
+      toast('กรุณากรอกชื่อผู้ใช้', 'warn');
+      return;
+    }
+    if (!this._userEditingId && !password) {
+      toast('กรุณากรอกรหัสผ่าน', 'warn');
+      return;
+    }
+
+    const saveBtn = $('userFormSaveBtn');
+    saveBtn.disabled = true;
+
+    try {
+      if (this._userEditingId) {
+        const patch = { role, display_name };
+        if (password) patch.password = password;
+        await API.updateUser(this._userEditingId, patch);
+        toast('อัปเดตผู้ใช้เรียบร้อย', 'success');
+      } else {
+        await API.createUser({ username, password, role, display_name });
+        toast('เพิ่มผู้ใช้เรียบร้อย', 'success');
+      }
+      this._hideUserForm();
+      await this._loadUsers();
     } catch (err) {
       toast(`บันทึกไม่สำเร็จ: ${err.message}`, 'error');
     } finally {

@@ -333,9 +333,10 @@ a { color: var(--accent); text-decoration: none; }
 /* Sidebar footer */
 .sidebar-footer {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 4px;
-  padding: 10px 12px;
+  padding: 10px 10px 8px;
   border-top: 1px solid var(--border);
   flex-shrink: 0;
 }
@@ -343,20 +344,26 @@ a { color: var(--accent); text-decoration: none; }
 .sidebar-footer-btn {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 7px 10px;
+  gap: 9px;
+  padding: 8px 10px;
   border-radius: var(--radius-sm);
   color: var(--muted);
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 500;
+  width: 100%;
+  text-align: left;
+  white-space: nowrap;
   transition: color var(--transition), background var(--transition);
 }
 .sidebar-footer-btn:hover { color: var(--text); background: var(--hover); }
+.sidebar-footer-btn svg { flex-shrink: 0; }
 
 .sidebar-version {
-  margin-left: auto;
-  font-size: 11px;
+  align-self: center;
+  font-size: 10.5px;
   color: var(--muted-2);
+  margin-top: 2px;
+  letter-spacing: 0.3px;
 }
 
 /* Mobile sidebar toggle */
@@ -771,6 +778,9 @@ a { color: var(--accent); text-decoration: none; }
   position: relative;
   width: 480px;
   max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
   background: var(--panel);
   border: 1px solid var(--border-2);
   border-radius: var(--radius-lg);
@@ -778,6 +788,11 @@ a { color: var(--accent); text-decoration: none; }
   overflow: hidden;
   transform: translateY(16px) scale(0.98);
   transition: transform 0.2s ease;
+}
+.modal-header { flex-shrink: 0; }
+.modal-body {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .modal.open .modal-dialog { transform: translateY(0) scale(1); }
 
@@ -1120,7 +1135,8 @@ a { color: var(--accent); text-decoration: none; }
    SETTINGS MODAL — wider + tabs
    ============================================================= */
 .modal-dialog--wide {
-  width: 600px;
+  width: 640px;
+  max-width: calc(100vw - 32px);
 }
 
 .settings-tabs {
@@ -1128,7 +1144,11 @@ a { color: var(--accent); text-decoration: none; }
   gap: 2px;
   padding: 10px 16px 0;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+.settings-tabs::-webkit-scrollbar { display: none; }
 
 .settings-tab {
   display: flex;
@@ -1138,6 +1158,8 @@ a { color: var(--accent); text-decoration: none; }
   border-radius: 8px 8px 0 0;
   font-size: 13px;
   font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
   color: var(--muted);
   border: 1px solid transparent;
   border-bottom: none;
@@ -1469,6 +1491,141 @@ a { color: var(--accent); text-decoration: none; }
 }
 
 /* =============================================================
+   RBAC — ROLE BADGES
+   ============================================================= */
+.role-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .3px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.role-admin {
+  background: rgba(168, 85, 247, .15);
+  color: #a855f7;
+  border: 1px solid rgba(168, 85, 247, .3);
+}
+.role-user {
+  background: rgba(59, 130, 246, .12);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, .25);
+}
+
+/* =============================================================
+   SIDEBAR USER DISPLAY
+   ============================================================= */
+.sidebar-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.07);
+  margin-bottom: 4px;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+.sidebar-user-avatar {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sidebar-user-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+.sidebar-user-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+.sidebar-user-role {
+  /* inherits role-badge styles when JS adds role-* class */
+  align-self: flex-start;
+}
+
+/* =============================================================
+   USER MANAGEMENT
+   ============================================================= */
+.user-item .db-item-left { gap: 10px; }
+
+.user-avatar-sm {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.user-self-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(16, 185, 129, .15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, .25);
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.user-status {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+}
+.user-status--active {
+  background: rgba(16, 185, 129, .12);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, .2);
+}
+.user-status--inactive {
+  background: rgba(239, 68, 68, .1);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, .2);
+}
+
+/* Disable style for self-action buttons */
+.db-action-btn[disabled],
+.db-toggle-input[disabled] + .db-toggle-track {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* =============================================================
    RESPONSIVE
    ============================================================= */
 @media (max-width: 768px) {
@@ -1492,13 +1649,59 @@ a { color: var(--accent); text-decoration: none; }
   .composer-wrap { padding: 10px 12px 16px; }
   .messages { padding: 16px 0; }
   .message { padding: 6px 12px; }
+
+  /* Settings modal becomes full-screen-ish */
+  .modal-dialog--wide { width: calc(100vw - 24px); }
+  .modal-body { padding: 16px; }
+  .settings-tabs { padding: 8px 10px 0; }
+  .settings-tab { padding: 8px 10px; font-size: 12.5px; }
+  .settings-tab span.tab-badge { font-size: 10px; }
+
+  /* DB / Users header row stacks vertically */
+  .db-header-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .btn-add-db { align-self: flex-end; }
+
+  /* DB / User cards: action buttons wrap on small screens */
+  .db-item {
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 10px 12px;
+  }
+  .db-item-left { flex: 1 1 100%; }
+  .db-item-actions { flex: 0 0 auto; margin-left: auto; }
+
+  .db-item-url { max-width: 100%; }
+  .db-item-meta { gap: 6px; }
+
+  /* Form grid collapses earlier */
+  .db-form-grid { grid-template-columns: 1fr; }
+  .db-form { padding: 14px; }
+
+  /* Modal header more compact */
+  .modal-header { padding: 14px 16px; }
+  .modal-header h3 { font-size: 14px; }
 }
 
 @media (max-width: 480px) {
   .empty-title { font-size: 22px; }
-  .modal-dialog { margin: 16px; }
-  .modal-dialog--wide { width: 100%; }
+  .modal-dialog {
+    margin: 12px;
+    max-height: calc(100vh - 24px);
+  }
+  .modal-dialog--wide { width: calc(100vw - 24px); }
   .db-form-grid { grid-template-columns: 1fr; }
-  .db-item-url { max-width: 120px; }
+  .db-form-actions {
+    flex-direction: column-reverse;
+  }
+  .db-form-actions .btn-db-cancel,
+  .db-form-actions .btn-db-save { width: 100%; justify-content: center; }
+  .db-item-url { max-width: 100%; }
   .login-card { padding: 28px 20px 22px; }
+
+  /* Hide tab text on very narrow — keep icon + badge only */
+  .settings-tab { padding: 9px 8px; }
 }

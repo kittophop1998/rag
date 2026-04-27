@@ -58,7 +58,11 @@ RAG/
 
 ## ติดตั้ง & ใช้งาน
 
+> ต้องการ **Python 3.10+** (แนะนำ 3.11 หรือ 3.12 เพื่อให้ `faiss-cpu` มี prebuilt wheel)
+
 ### 1) เตรียม environment
+
+#### macOS / Linux
 
 ```bash
 python3 -m venv .venv
@@ -68,14 +72,53 @@ cp .env.example .env
 # จากนั้นเปิด .env แล้วใส่ค่า OPENAI_API_KEY, LINE_CHANNEL_SECRET, LINE_CHANNEL_ACCESS_TOKEN
 ```
 
+#### Windows (PowerShell)
+
+```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+copy .env.example .env
+# จากนั้นเปิด .env แล้วใส่ค่า OPENAI_API_KEY, LINE_CHANNEL_SECRET, LINE_CHANNEL_ACCESS_TOKEN
+```
+
+> ถ้า PowerShell ขึ้น error เรื่อง execution policy ให้รันคำสั่งนี้ในหน้าต่างปัจจุบันก่อน:
+> `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`
+
+#### Windows (Command Prompt / cmd)
+
+```bat
+py -3 -m venv .venv
+.venv\Scripts\activate.bat
+pip install -r requirements.txt
+copy .env.example .env
+```
+
 ### 2) วางไฟล์ PDF
 
 วางไฟล์ PDF ทั้งหมดของบริษัทใน `./documents/` (มีโฟลเดอร์ย่อยได้)
 
 ### 3) รันเซิร์ฟเวอร์
 
+#### macOS / Linux
+
 ```bash
 uvicorn app.main:app --reload --port 8000
+# หรือใช้สคริปต์สำเร็จรูป
+./run.sh
+```
+
+#### Windows
+
+```bat
+uvicorn app.main:app --reload --port 8000
+REM หรือใช้สคริปต์สำเร็จรูป (cmd)
+run.bat
+```
+
+```powershell
+# หรือ PowerShell
+.\run.ps1
 ```
 
 ครั้งแรกระบบจะ index เอกสารให้อัตโนมัติ จากนั้นเปิดเบราว์เซอร์ไปที่

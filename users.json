@@ -1,0 +1,11 @@
+[
+  {
+    "id": "21305ac5-a213-4d3f-875a-58852f6d62be",
+    "username": "admin",
+    "password_hash": "pbkdf2sha256:918d37ffe273f2e451ad24fa479e13d6:c7dd2ad4b152f44106cd60048bd3b68c790ce8b9b46828eb575689e249daf736",
+    "role": "admin",
+    "enabled": true,
+    "display_name": "Administrator",
+    "created_at": "2026-04-27T08:57:27.062419+00:00"
+  }
+]
