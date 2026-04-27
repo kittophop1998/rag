@@ -14,5 +14,5 @@ documents/*
 !documents/.gitkeep
 
 
-# db_connections.json
-# users.json
+db_connections.json
+users.json
