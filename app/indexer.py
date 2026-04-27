@@ -107,6 +107,13 @@ def build_vectorstore(force: bool = False) -> FAISS:
         )
 
     chunks = _split_documents(docs)
+    if not chunks:
+        raise RuntimeError(
+            "ไม่สามารถดึงข้อความจากไฟล์ PDF ได้เลย — "
+            "ไฟล์อาจเป็น scanned PDF (รูปภาพ) ที่ไม่มี text layer "
+            "กรุณาแปลงไฟล์ให้เป็น PDF ที่มีข้อความ (searchable PDF) ก่อนอัปโหลด"
+        )
+
     vs = FAISS.from_documents(chunks, _embeddings())
 
     index_dir.mkdir(parents=True, exist_ok=True)
