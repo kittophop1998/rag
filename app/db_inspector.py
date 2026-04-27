@@ -15,6 +15,46 @@ logger = logging.getLogger(__name__)
 _SQL_TYPES = {"mysql", "postgresql", "mssql", "other"}
 _MAX_SAMPLE_DOCS = 10   # documents to sample per MongoDB collection
 
+# Map bare scheme → scheme+driver (use our installed drivers)
+_SCHEME_MAP = {
+    "mysql":      "mysql+pymysql",
+    "postgresql": "postgresql+psycopg2",
+    "postgres":   "postgresql+psycopg2",
+    "mssql":      "mssql+pyodbc",
+}
+
+
+def _normalize_sql_url(url: str) -> str:
+    """Rewrite the SQLAlchemy URL dialect to use the drivers we have installed,
+    and percent-encode any special characters in the password component so that
+    SQLAlchemy can parse the URL correctly.
+
+    e.g.  mysql://user:p@ss=1@host/db  →  mysql+pymysql://user:p%40ss%3D1@host/db
+    """
+    from urllib.parse import quote, urlparse, urlunparse
+
+    # 1. Swap dialect prefix
+    new_url = url
+    for bare, with_driver in _SCHEME_MAP.items():
+        prefix = f"{bare}://"
+        if url.startswith(prefix):
+            new_url = with_driver + url[len(prefix) - 3:]
+            break
+
+    # 2. Re-encode password (handles @, =, /, +, etc. inside passwords)
+    try:
+        parsed = urlparse(new_url)
+        if parsed.password and any(c in parsed.password for c in "@=+/ "):
+            safe_pass = quote(parsed.password, safe="")
+            netloc = parsed.netloc.replace(
+                f":{parsed.password}@", f":{safe_pass}@", 1
+            )
+            new_url = urlunparse(parsed._replace(netloc=netloc))
+    except Exception:  # noqa: BLE001
+        pass  # return as-is if parsing fails
+
+    return new_url
+
 
 def get_schema_description(db_type: str, url: str) -> str:
     """Return a human-readable schema string to use as LLM context.
@@ -40,7 +80,7 @@ def get_schema_description(db_type: str, url: str) -> str:
 def _sql_schema(url: str) -> str:
     from sqlalchemy import create_engine, inspect  # type: ignore[import-untyped]
 
-    engine = create_engine(url, pool_pre_ping=True)
+    engine = create_engine(_normalize_sql_url(url), pool_pre_ping=True)
     try:
         insp = inspect(engine)
         parts: list[str] = []

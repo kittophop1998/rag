@@ -52,6 +52,7 @@ def execute_query(db_type: str, url: str, query: str) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 def _sql_execute(url: str, sql: str) -> list[dict[str, Any]]:
     from sqlalchemy import create_engine, text  # type: ignore[import-untyped]
+    from app.db_inspector import _normalize_sql_url
 
     if _SQL_FORBIDDEN_RE.search(sql):
         bad = _SQL_FORBIDDEN_RE.search(sql).group()  # type: ignore[union-attr]
@@ -59,7 +60,7 @@ def _sql_execute(url: str, sql: str) -> list[dict[str, Any]]:
             f"คำสั่ง SQL ไม่ได้รับอนุญาต (พบ '{bad}') — ใช้ได้เฉพาะ SELECT เท่านั้น"
         )
 
-    engine = create_engine(url, pool_pre_ping=True)
+    engine = create_engine(_normalize_sql_url(url), pool_pre_ping=True)
     try:
         with engine.connect() as conn:
             result = conn.execute(text(sql))
