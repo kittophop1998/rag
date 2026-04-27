@@ -2,6 +2,7 @@
  * Company RAG — Frontend
  *
  * Architecture:
+ *   Auth     → Login / logout / token management
  *   API      → All HTTP / SSE calls (isolated; easy to swap backend)
  *   Storage  → Chat session persistence via localStorage
  *   md       → Lightweight inline Markdown renderer
@@ -18,9 +19,73 @@ const CFG = {
   REINDEX_URL:   '/api/reindex',
   DOCS_URL:      '/api/documents',
   UPLOAD_URL:    '/api/upload',
+  LOGIN_URL:     '/api/auth/login',
+  LOGOUT_URL:    '/api/auth/logout',
+  ME_URL:        '/api/auth/me',
+  DB_URL:        '/api/settings/databases',
   STORAGE_KEY:   'rag_sessions_v2',
+  TOKEN_KEY:     'rag_auth_token',
   MAX_SESSIONS:  60,
   TITLE_MAX_LEN: 46,
+};
+
+/* ================================================================
+   AUTH — token management
+   ================================================================ */
+const Auth = {
+  getToken() {
+    return localStorage.getItem(CFG.TOKEN_KEY) || '';
+  },
+
+  setToken(token) {
+    localStorage.setItem(CFG.TOKEN_KEY, token);
+  },
+
+  clearToken() {
+    localStorage.removeItem(CFG.TOKEN_KEY);
+  },
+
+  isLoggedIn() {
+    return !!this.getToken();
+  },
+
+  /** Returns the Authorization header object for fetch calls. */
+  headers() {
+    const t = this.getToken();
+    return t ? { Authorization: `Bearer ${t}` } : {};
+  },
+
+  async login(username, password) {
+    const r = await fetch(CFG.LOGIN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    const json = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(json.detail || `HTTP ${r.status}`);
+    this.setToken(json.token);
+    return json;
+  },
+
+  async logout() {
+    try {
+      await fetch(CFG.LOGOUT_URL, {
+        method: 'POST',
+        headers: { ...Auth.headers(), 'Content-Type': 'application/json' },
+      });
+    } catch { /* ignore network error on logout */ }
+    this.clearToken();
+  },
+
+  async verify() {
+    if (!this.isLoggedIn()) return false;
+    try {
+      const r = await fetch(CFG.ME_URL, { headers: Auth.headers() });
+      return r.ok;
+    } catch {
+      return false;
+    }
+  },
 };
 
 /* ================================================================
@@ -30,11 +95,9 @@ const CFG = {
 function md(raw) {
   if (!raw) return '';
 
-  // Split on fenced code blocks first so we don't mangle their content.
   const parts = raw.split(/(```[\w]*\n?[\s\S]*?```)/g);
 
   const rendered = parts.map((part, idx) => {
-    // Code block
     if (idx % 2 === 1) {
       const m = part.match(/```([\w]*)\n?([\s\S]*?)```/);
       if (!m) return `<pre><code>${esc(part)}</code></pre>`;
@@ -43,36 +106,25 @@ function md(raw) {
     }
 
     let t = esc(part);
-
-    // Inline code  (before bold/italic so backticks aren't processed further)
     t = t.replace(/`([^`\n]+)`/g, '<code>$1</code>');
-
-    // Bold
     t = t.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
     t = t.replace(/__([^_\n]+)__/g, '<strong>$1</strong>');
-
-    // Italic
     t = t.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
     t = t.replace(/_([^_\n]+)_/g, '<em>$1</em>');
-
-    // Headers
     t = t.replace(/^### (.+)$/gm, '<h3>$1</h3>');
     t = t.replace(/^## (.+)$/gm, '<h2>$1</h2>');
     t = t.replace(/^# (.+)$/gm, '<h1>$1</h1>');
 
-    // Unordered list lines → wrap in <ul>
     t = t.replace(/((?:^[ \t]*[-*] .+\n?)+)/gm, match => {
       const items = match.replace(/^[ \t]*[-*] (.+)$/gm, '<li>$1</li>');
       return `<ul>${items}</ul>`;
     });
 
-    // Ordered list lines → wrap in <ol>
     t = t.replace(/((?:^[ \t]*\d+\. .+\n?)+)/gm, match => {
       const items = match.replace(/^[ \t]*\d+\. (.+)$/gm, '<li>$1</li>');
       return `<ol>${items}</ol>`;
     });
 
-    // Paragraphs
     t = t.split(/\n{2,}/).map(p => {
       const trimmed = p.trim();
       if (!trimmed) return '';
@@ -100,17 +152,19 @@ function esc(s) {
    ================================================================ */
 const API = {
 
-  /**
-   * Stream a chat answer via SSE.
-   * Yields objects: { type: 'token'|'sources'|'error', content: any }
-   */
   async *stream(question) {
     const url = `${CFG.STREAM_URL}?q=${encodeURIComponent(question)}`;
     let resp;
     try {
-      resp = await fetch(url, { headers: { Accept: 'text/event-stream' } });
+      resp = await fetch(url, { headers: { Accept: 'text/event-stream', ...Auth.headers() } });
     } catch (err) {
       yield { type: 'error', content: `ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้: ${err.message}` };
+      return;
+    }
+    if (resp.status === 401) {
+      Auth.clearToken();
+      showLogin();
+      yield { type: 'error', content: 'Session หมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง' };
       return;
     }
     if (!resp.ok) {
@@ -128,7 +182,7 @@ const API = {
       buffer += decoder.decode(value, { stream: true });
 
       const lines = buffer.split('\n');
-      buffer = lines.pop();           // keep incomplete last line
+      buffer = lines.pop();
 
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
@@ -140,14 +194,14 @@ const API = {
   },
 
   async reindex() {
-    const r = await fetch(CFG.REINDEX_URL, { method: 'POST' });
+    const r = await fetch(CFG.REINDEX_URL, { method: 'POST', headers: Auth.headers() });
     const json = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(json.detail || `HTTP ${r.status}`);
     return json;
   },
 
   async documents() {
-    const r = await fetch(CFG.DOCS_URL);
+    const r = await fetch(CFG.DOCS_URL, { headers: Auth.headers() });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return r.json();
   },
@@ -155,7 +209,43 @@ const API = {
   async upload(file) {
     const fd = new FormData();
     fd.append('file', file);
-    const r = await fetch(CFG.UPLOAD_URL, { method: 'POST', body: fd });
+    const r = await fetch(CFG.UPLOAD_URL, { method: 'POST', body: fd, headers: Auth.headers() });
+    const json = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(json.detail || `HTTP ${r.status}`);
+    return json;
+  },
+
+  // ── Database settings ───────────────────────────────────────────
+  async listDatabases() {
+    const r = await fetch(CFG.DB_URL, { headers: Auth.headers() });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  },
+
+  async addDatabase(data) {
+    const r = await fetch(CFG.DB_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...Auth.headers() },
+      body: JSON.stringify(data),
+    });
+    const json = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(json.detail || `HTTP ${r.status}`);
+    return json;
+  },
+
+  async updateDatabase(id, data) {
+    const r = await fetch(`${CFG.DB_URL}/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...Auth.headers() },
+      body: JSON.stringify(data),
+    });
+    const json = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(json.detail || `HTTP ${r.status}`);
+    return json;
+  },
+
+  async deleteDatabase(id) {
+    const r = await fetch(`${CFG.DB_URL}/${id}`, { method: 'DELETE', headers: Auth.headers() });
     const json = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(json.detail || `HTTP ${r.status}`);
     return json;
@@ -231,7 +321,6 @@ const Store = {
    ================================================================ */
 const $ = id => document.getElementById(id);
 
-/** Show a toast notification. */
 function toast(msg, type = 'info', durationMs = 3500) {
   const icons = { success: '✅', error: '❌', info: 'ℹ️', warn: '⚠️' };
   const el = document.createElement('div');
@@ -245,14 +334,12 @@ function toast(msg, type = 'info', durationMs = 3500) {
   }, durationMs);
 }
 
-/** Format bytes to human-readable string. */
 function fmtBytes(b) {
   if (b < 1024) return `${b} B`;
   if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
   return `${(b / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** Group sessions by relative date label. */
 function groupByDate(sessions) {
   const now = Date.now();
   const ONE_DAY = 86_400_000;
@@ -270,16 +357,58 @@ function groupByDate(sessions) {
 }
 
 /* ================================================================
+   LOGIN PAGE HELPERS
+   ================================================================ */
+function showLogin() {
+  $('loginPage').classList.add('active');
+  $('loginPage').removeAttribute('aria-hidden');
+  $('app').setAttribute('aria-hidden', 'true');
+  $('app').style.display = 'none';
+  setTimeout(() => $('loginUsername').focus(), 100);
+}
+
+function showApp() {
+  $('loginPage').classList.remove('active');
+  $('loginPage').setAttribute('aria-hidden', 'true');
+  $('app').removeAttribute('aria-hidden');
+  $('app').style.display = '';
+}
+
+/* DB type icons / labels */
+const DB_TYPES = {
+  mysql:      { label: 'MySQL',         icon: '🐬' },
+  postgresql: { label: 'PostgreSQL',    icon: '🐘' },
+  mssql:      { label: 'MS SQL Server', icon: '🪟' },
+  mongodb:    { label: 'MongoDB',       icon: '🍃' },
+  redis:      { label: 'Redis',         icon: '🔴' },
+  rest:       { label: 'REST API',      icon: '🌐' },
+  other:      { label: 'อื่นๆ',          icon: '🗄️' },
+};
+
+/* ================================================================
    APP
    ================================================================ */
 class App {
   constructor() {
     this.currentSessionId = null;
     this.isStreaming = false;
+    this._dbEditingId = null;
   }
 
-  /** Boot: bind events, render history, load docs. */
-  init() {
+  /** Boot: check auth first, then bind events. */
+  async init() {
+    const valid = await Auth.verify();
+    if (!valid) {
+      Auth.clearToken();
+      showLogin();
+      this._bindLogin();
+      return;
+    }
+    this._launch();
+  }
+
+  _launch() {
+    showApp();
     this._bindSidebar();
     this._bindComposer();
     this._bindSettings();
@@ -290,19 +419,68 @@ class App {
     $('chatInput').focus();
   }
 
+  /* ── Login ──────────────────────────────────────────────────── */
+  _bindLogin() {
+    const form    = $('loginForm');
+    const errEl   = $('loginError');
+    const pwInput = $('loginPassword');
+    const togglePwBtn = $('togglePasswordBtn');
+
+    togglePwBtn.addEventListener('click', () => {
+      const isPassword = pwInput.type === 'password';
+      pwInput.type = isPassword ? 'text' : 'password';
+      $('eyeIcon').innerHTML = isPassword
+        ? `<line x1="1" y1="1" x2="23" y2="23"/><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>`
+        : `<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>`;
+    });
+
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      errEl.textContent = '';
+      const username = $('loginUsername').value.trim();
+      const password = $('loginPassword').value;
+      if (!username || !password) {
+        errEl.textContent = 'กรุณากรอกชื่อผู้ใช้และรหัสผ่าน';
+        return;
+      }
+
+      const btn = $('loginBtn');
+      btn.disabled = true;
+      $('loginBtnText').textContent = 'กำลังเข้าสู่ระบบ...';
+      $('loginSpinner').classList.remove('hidden');
+
+      try {
+        await Auth.login(username, password);
+        this._launch();
+        $('loginPassword').value = '';
+      } catch (err) {
+        errEl.textContent = err.message || 'เข้าสู่ระบบไม่สำเร็จ';
+        $('loginPassword').value = '';
+        $('loginPassword').focus();
+      } finally {
+        btn.disabled = false;
+        $('loginBtnText').textContent = 'เข้าสู่ระบบ';
+        $('loginSpinner').classList.add('hidden');
+      }
+    });
+
+    // Enter on username → focus password
+    $('loginUsername').addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); $('loginPassword').focus(); }
+    });
+  }
+
   /* ── Sidebar ────────────────────────────────────────────────── */
   _bindSidebar() {
     $('sidebarCollapseBtn').addEventListener('click', () => {
       document.getElementById('app').classList.toggle('sidebar-collapsed');
     });
 
-    // Mobile toggle
     const mobileBtn = $('mobileSidebarBtn');
     mobileBtn.addEventListener('click', () => {
       $('sidebar').classList.toggle('mobile-open');
     });
 
-    // Close sidebar on backdrop click (mobile)
     document.addEventListener('click', e => {
       const sidebar = $('sidebar');
       if (window.innerWidth <= 768 && sidebar.classList.contains('mobile-open')) {
@@ -315,6 +493,12 @@ class App {
     $('newChatBtn').addEventListener('click', () => {
       this._startNewChat();
       $('sidebar').classList.remove('mobile-open');
+    });
+
+    $('logoutBtn').addEventListener('click', async () => {
+      await Auth.logout();
+      showLogin();
+      this._bindLogin();
     });
   }
 
@@ -351,19 +535,13 @@ class App {
 
     container.innerHTML = html;
 
-    // Event delegation for clicks
     container.addEventListener('click', e => {
       const delBtn = e.target.closest('[data-del]');
-      if (delBtn) {
-        e.stopPropagation();
-        this._deleteSession(delBtn.dataset.del);
-        return;
-      }
+      if (delBtn) { e.stopPropagation(); this._deleteSession(delBtn.dataset.del); return; }
       const item = e.target.closest('[data-id]');
       if (item) this._loadSession(item.dataset.id);
     });
 
-    // Keyboard support
     container.addEventListener('keydown', e => {
       if (e.key === 'Enter') {
         const item = e.target.closest('[data-id]');
@@ -409,29 +587,21 @@ class App {
 
   /* ── Composer ───────────────────────────────────────────────── */
   _bindComposer() {
-    const input  = $('chatInput');
+    const input   = $('chatInput');
     const sendBtn = $('sendBtn');
-    const form   = $('composer');
+    const form    = $('composer');
 
-    // Enable/disable send button
     input.addEventListener('input', () => {
       sendBtn.disabled = !input.value.trim() || this.isStreaming;
-      // Auto-resize
       input.style.height = 'auto';
       input.style.height = Math.min(input.scrollHeight, 180) + 'px';
     });
 
     input.addEventListener('keydown', e => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        this._send();
-      }
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this._send(); }
     });
 
-    form.addEventListener('submit', e => {
-      e.preventDefault();
-      this._send();
-    });
+    form.addEventListener('submit', e => { e.preventDefault(); this._send(); });
   }
 
   async _send() {
@@ -440,30 +610,23 @@ class App {
     const question = input.value.trim();
     if (!question) return;
 
-    // Clear input
     input.value = '';
     input.style.height = 'auto';
     $('sendBtn').disabled = true;
 
-    // Ensure we have a session
     if (!this.currentSessionId) {
       const session = Store.create(question);
       this.currentSessionId = session.id;
       this._renderHistory();
     }
 
-    // Hide empty state, show message area
     this._hideEmptyState();
-
-    // Append user message
     this._appendUserBubble(question);
     Store.addMessage(this.currentSessionId, { role: 'user', content: question });
 
-    // Create bot bubble with typing indicator
     const { msgEl, bubble, setContent, finalize } = this._createBotBubble(true);
     this._scrollToBottom();
 
-    // Stream
     this.isStreaming = true;
     let fullText = '';
     let sources = [];
@@ -472,7 +635,7 @@ class App {
       for await (const event of API.stream(question)) {
         if (event.type === 'token') {
           fullText += event.content;
-          setContent(fullText, true /* streaming */);
+          setContent(fullText, true);
           this._scrollToBottom();
         } else if (event.type === 'sources') {
           sources = event.content;
@@ -496,24 +659,10 @@ class App {
   }
 
   /* ── Chat Area DOM helpers ──────────────────────────────────── */
-  _showEmptyState()  {
-    $('emptyState').style.display = '';
-    $('messages').style.display  = 'none';
-  }
-
-  _hideEmptyState() {
-    $('emptyState').style.display = 'none';
-    $('messages').style.display  = '';
-  }
-
-  _clearMessages() {
-    $('messages').innerHTML = '';
-  }
-
-  _scrollToBottom() {
-    const el = $('messages');
-    el.scrollTop = el.scrollHeight;
-  }
+  _showEmptyState()  { $('emptyState').style.display = ''; $('messages').style.display = 'none'; }
+  _hideEmptyState()  { $('emptyState').style.display = 'none'; $('messages').style.display = ''; }
+  _clearMessages()   { $('messages').innerHTML = ''; }
+  _scrollToBottom()  { const el = $('messages'); el.scrollTop = el.scrollHeight; }
 
   _appendUserBubble(text) {
     const msgEl = document.createElement('div');
@@ -527,10 +676,6 @@ class App {
     return msgEl;
   }
 
-  /**
-   * Creates a bot message bubble.
-   * Returns helpers: setContent(text, streaming), finalize(), and DOM refs.
-   */
   _createBotBubble(showTyping = false) {
     const msgEl = document.createElement('div');
     msgEl.className = 'message bot';
@@ -555,7 +700,6 @@ class App {
     let cursor = null;
 
     function setContent(text, streaming = false) {
-      // Remove cursor before re-rendering
       if (cursor) cursor.remove();
       bubble.innerHTML = md(text);
       if (streaming) {
@@ -572,9 +716,6 @@ class App {
     return { msgEl, bubble, setContent, finalize };
   }
 
-  /**
-   * Append sources as clickable chips below a bot message body.
-   */
   _appendSources(msgEl, sources) {
     const body = msgEl.querySelector('.msg-body');
     if (!body) return;
@@ -587,10 +728,9 @@ class App {
     label.textContent = '📎 อ้างอิง:';
     bar.appendChild(label);
 
-    // Preview container (shared)
     const previewContainer = document.createElement('div');
 
-    sources.forEach((src, i) => {
+    sources.forEach(src => {
       const page = typeof src.page === 'number' ? ` หน้า ${src.page + 1}` : '';
       const chipText = `${src.source}${page}`;
 
@@ -608,10 +748,8 @@ class App {
 
       chip.addEventListener('click', () => {
         const isOpen = !preview.hidden;
-        // Close all other previews and chips
         previewContainer.querySelectorAll('.source-preview').forEach(p => p.hidden = true);
         bar.querySelectorAll('.source-chip').forEach(c => c.classList.remove('active'));
-        // Toggle this one
         preview.hidden = isOpen;
         chip.classList.toggle('active', !isOpen);
       });
@@ -642,7 +780,6 @@ class App {
 
   /* ── Knowledge Base ─────────────────────────────────────────── */
   _bindKnowledgeBase() {
-    // Accordion toggle
     $('kbToggleBtn').addEventListener('click', () => {
       const panel = $('kbPanel');
       const isOpen = panel.classList.toggle('open');
@@ -651,7 +788,6 @@ class App {
       if (isOpen) this._loadDocs();
     });
 
-    // Reindex
     $('reindexBtn').addEventListener('click', async () => {
       const btn = $('reindexBtn');
       btn.disabled = true;
@@ -668,7 +804,6 @@ class App {
       }
     });
 
-    // File upload
     $('uploadInput').addEventListener('change', async e => {
       const files = Array.from(e.target.files || []);
       e.target.value = '';
@@ -710,12 +845,20 @@ class App {
 
   /* ── Settings Modal ─────────────────────────────────────────── */
   _bindSettings() {
-    const modal   = $('settingsModal');
+    const modal    = $('settingsModal');
     const backdrop = $('modalBackdrop');
     const closeBtn = $('modalCloseBtn');
 
-    const open  = () => { modal.classList.add('open'); modal.removeAttribute('aria-hidden'); };
-    const close = () => { modal.classList.remove('open'); modal.setAttribute('aria-hidden', 'true'); };
+    const open = () => {
+      modal.classList.add('open');
+      modal.removeAttribute('aria-hidden');
+      this._loadDatabases();
+    };
+    const close = () => {
+      modal.classList.remove('open');
+      modal.setAttribute('aria-hidden', 'true');
+      this._hideDbForm();
+    };
 
     $('settingsBtn').addEventListener('click', () => {
       $('webhookUrl').textContent = `${window.location.origin}/webhook`;
@@ -726,7 +869,6 @@ class App {
     closeBtn.addEventListener('click', close);
     document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
 
-    // Copy webhook URL
     $('copyWebhookBtn').addEventListener('click', () => {
       const url = $('webhookUrl').textContent;
       navigator.clipboard.writeText(url).then(() => {
@@ -735,6 +877,195 @@ class App {
         toast('คัดลอกไม่สำเร็จ', 'error');
       });
     });
+
+    // Tab switching
+    document.querySelectorAll('.settings-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.settings-tab-panel').forEach(p => {
+          p.classList.remove('active');
+          p.setAttribute('aria-hidden', 'true');
+        });
+        tab.classList.add('active');
+        const panel = $(`tab${tab.dataset.tab.charAt(0).toUpperCase() + tab.dataset.tab.slice(1)}`);
+        if (panel) {
+          panel.classList.add('active');
+          panel.removeAttribute('aria-hidden');
+        }
+        if (tab.dataset.tab === 'databases') this._loadDatabases();
+      });
+    });
+
+    // DB: add button
+    $('addDbBtn').addEventListener('click', () => this._showDbForm());
+    $('dbFormCancelBtn').addEventListener('click', () => this._hideDbForm());
+    $('dbFormSaveBtn').addEventListener('click', () => this._saveDatabase());
+  }
+
+  /* ── Database Management ────────────────────────────────────── */
+  async _loadDatabases() {
+    const list = $('dbList');
+    try {
+      const data = await API.listDatabases();
+      const dbs = data.databases || [];
+
+      // Update tab badge
+      const badge = $('dbCountBadge');
+      if (dbs.length > 0) {
+        badge.textContent = dbs.length;
+        badge.classList.remove('hidden');
+      } else {
+        badge.classList.add('hidden');
+      }
+
+      if (!dbs.length) {
+        list.innerHTML = `
+          <div class="db-list-empty">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <ellipse cx="12" cy="5" rx="9" ry="3"/>
+              <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+              <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+            </svg>
+            <p>ยังไม่มีฐานข้อมูล<br>กด "เพิ่มฐานข้อมูล" เพื่อเริ่มต้น</p>
+          </div>`;
+        return;
+      }
+
+      list.innerHTML = dbs.map(db => {
+        const typeInfo = DB_TYPES[db.db_type] || DB_TYPES.other;
+        const maskedUrl = this._maskUrl(db.url);
+        return `
+          <div class="db-item" data-id="${db.id}">
+            <div class="db-item-left">
+              <span class="db-item-icon">${typeInfo.icon}</span>
+              <div class="db-item-info">
+                <div class="db-item-name">${esc(db.name)}</div>
+                <div class="db-item-meta">
+                  <span class="db-type-badge">${esc(typeInfo.label)}</span>
+                  <span class="db-item-url" title="${esc(db.url)}">${esc(maskedUrl)}</span>
+                </div>
+                ${db.description ? `<div class="db-item-desc">${esc(db.description)}</div>` : ''}
+              </div>
+            </div>
+            <div class="db-item-actions">
+              <label class="db-toggle" title="${db.enabled ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}">
+                <input type="checkbox" class="db-toggle-input" data-db-id="${db.id}" ${db.enabled ? 'checked' : ''} />
+                <span class="db-toggle-track"></span>
+              </label>
+              <button class="db-action-btn db-edit-btn" data-edit="${db.id}" title="แก้ไข">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+              </button>
+              <button class="db-action-btn db-delete-btn" data-delete="${db.id}" title="ลบ">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="3 6 5 6 21 6"/>
+                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                  <path d="M10 11v6M14 11v6"/>
+                  <path d="M9 6V4h6v2"/>
+                </svg>
+              </button>
+            </div>
+          </div>`;
+      }).join('');
+
+      // Bind events on list items
+      list.querySelectorAll('.db-toggle-input').forEach(chk => {
+        chk.addEventListener('change', async () => {
+          try {
+            await API.updateDatabase(chk.dataset.dbId, { enabled: chk.checked });
+            toast(chk.checked ? 'เปิดใช้งานแล้ว' : 'ปิดใช้งานแล้ว', 'success', 2000);
+          } catch (err) {
+            toast(`ไม่สำเร็จ: ${err.message}`, 'error');
+            chk.checked = !chk.checked;
+          }
+        });
+      });
+
+      list.querySelectorAll('[data-edit]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const db = dbs.find(d => d.id === btn.dataset.edit);
+          if (db) this._showDbForm(db);
+        });
+      });
+
+      list.querySelectorAll('[data-delete]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if (!confirm('ต้องการลบฐานข้อมูลนี้ใช่หรือไม่?')) return;
+          try {
+            await API.deleteDatabase(btn.dataset.delete);
+            toast('ลบฐานข้อมูลแล้ว', 'success');
+            await this._loadDatabases();
+          } catch (err) {
+            toast(`ลบไม่สำเร็จ: ${err.message}`, 'error');
+          }
+        });
+      });
+
+    } catch (err) {
+      list.innerHTML = `<p class="docs-empty">โหลดข้อมูลไม่สำเร็จ: ${esc(err.message)}</p>`;
+    }
+  }
+
+  _maskUrl(url) {
+    try {
+      const u = new URL(url);
+      if (u.password) u.password = '••••••';
+      return u.toString();
+    } catch {
+      // Not a URL (e.g. connection string) — redact password-like parts
+      return url.replace(/:[^@:/]+@/, ':••••••@');
+    }
+  }
+
+  _showDbForm(db = null) {
+    const form = $('dbForm');
+    $('dbFormTitle').textContent = db ? 'แก้ไขฐานข้อมูล' : 'เพิ่มฐานข้อมูลใหม่';
+    $('dbFormId').value   = db ? db.id : '';
+    $('dbFormName').value = db ? db.name : '';
+    $('dbFormType').value = db ? db.db_type : 'mysql';
+    $('dbFormUrl').value  = db ? db.url : '';
+    $('dbFormDesc').value = db ? db.description : '';
+    this._dbEditingId = db ? db.id : null;
+    form.classList.remove('hidden');
+    $('dbFormName').focus();
+  }
+
+  _hideDbForm() {
+    $('dbForm').classList.add('hidden');
+    this._dbEditingId = null;
+  }
+
+  async _saveDatabase() {
+    const name    = $('dbFormName').value.trim();
+    const db_type = $('dbFormType').value;
+    const url     = $('dbFormUrl').value.trim();
+    const description = $('dbFormDesc').value.trim();
+
+    if (!name || !url) {
+      toast('กรุณากรอกชื่อและ URL ให้ครบ', 'warn');
+      return;
+    }
+
+    const saveBtn = $('dbFormSaveBtn');
+    saveBtn.disabled = true;
+
+    try {
+      if (this._dbEditingId) {
+        await API.updateDatabase(this._dbEditingId, { name, db_type, url, description });
+        toast('อัปเดตฐานข้อมูลเรียบร้อย', 'success');
+      } else {
+        await API.addDatabase({ name, db_type, url, description, enabled: true });
+        toast('เพิ่มฐานข้อมูลเรียบร้อย', 'success');
+      }
+      this._hideDbForm();
+      await this._loadDatabases();
+    } catch (err) {
+      toast(`บันทึกไม่สำเร็จ: ${err.message}`, 'error');
+    } finally {
+      saveBtn.disabled = false;
+    }
   }
 }
 

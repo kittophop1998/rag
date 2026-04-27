@@ -15,13 +15,22 @@ import logging
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from app.auth import create_token, require_auth, revoke_token
 from app.config import settings
+from app.db_settings import (
+    DatabaseConnectionCreate,
+    DatabaseConnectionUpdate,
+    add_connection,
+    delete_connection,
+    list_connections,
+    update_connection,
+)
 from app.indexer import build_vectorstore
 from app.line_webhook import router as line_router
 from app.rag import rag_engine
@@ -59,6 +68,11 @@ app.include_router(line_router)
 # ---------------------------------------------------------------------------
 # Schemas
 # ---------------------------------------------------------------------------
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1, description="User question in Thai or English")
 
@@ -79,7 +93,7 @@ class ChatResponse(BaseModel):
 # ---------------------------------------------------------------------------
 @app.get("/", include_in_schema=False)
 async def index() -> FileResponse:
-    """Serve the chat UI."""
+    """Serve the chat UI (login check is done client-side)."""
     return FileResponse(STATIC_DIR / "index.html")
 
 
@@ -88,8 +102,60 @@ async def healthz():
     return {"status": "ok"}
 
 
+# ── Auth ─────────────────────────────────────────────────────────────────────
+@app.post("/api/auth/login", tags=["auth"])
+async def api_login(req: LoginRequest):
+    """Exchange username + password for a session token."""
+    token = create_token(req.username, req.password)
+    return {"token": token, "username": req.username}
+
+
+@app.post("/api/auth/logout", tags=["auth"])
+async def api_logout(token: str = Depends(require_auth)):
+    revoke_token(token)
+    return {"status": "ok"}
+
+
+@app.get("/api/auth/me", tags=["auth"])
+async def api_me(token: str = Depends(require_auth)):
+    """Verify that the current token is still valid."""
+    return {"authenticated": True}
+
+
+# ── Database Settings ─────────────────────────────────────────────────────────
+@app.get("/api/settings/databases", tags=["settings"])
+async def api_list_databases(_: str = Depends(require_auth)):
+    return {"databases": [c.model_dump() for c in list_connections()]}
+
+
+@app.post("/api/settings/databases", tags=["settings"])
+async def api_add_database(data: DatabaseConnectionCreate, _: str = Depends(require_auth)):
+    conn = add_connection(data)
+    return conn.model_dump()
+
+
+@app.patch("/api/settings/databases/{conn_id}", tags=["settings"])
+async def api_update_database(
+    conn_id: str,
+    data: DatabaseConnectionUpdate,
+    _: str = Depends(require_auth),
+):
+    conn = update_connection(conn_id, data)
+    if not conn:
+        raise HTTPException(status_code=404, detail="ไม่พบ Database ที่ระบุ")
+    return conn.model_dump()
+
+
+@app.delete("/api/settings/databases/{conn_id}", tags=["settings"])
+async def api_delete_database(conn_id: str, _: str = Depends(require_auth)):
+    if not delete_connection(conn_id):
+        raise HTTPException(status_code=404, detail="ไม่พบ Database ที่ระบุ")
+    return {"status": "ok"}
+
+
+# ── Chat ──────────────────────────────────────────────────────────────────────
 @app.post("/api/chat", response_model=ChatResponse)
-async def api_chat(req: ChatRequest) -> ChatResponse:
+async def api_chat(req: ChatRequest, _: str = Depends(require_auth)) -> ChatResponse:
     """Ask the RAG a question and get back an answer plus its citations."""
     try:
         result = rag_engine.ask(req.question)
@@ -108,7 +174,7 @@ async def api_chat(req: ChatRequest) -> ChatResponse:
 
 
 @app.get("/api/chat/stream")
-async def api_chat_stream(q: str = "") -> StreamingResponse:
+async def api_chat_stream(q: str = "", _: str = Depends(require_auth)) -> StreamingResponse:
     """Stream a RAG answer token-by-token via Server-Sent Events (GET ?q=...)."""
     if not q.strip():
 
@@ -125,7 +191,7 @@ async def api_chat_stream(q: str = "") -> StreamingResponse:
 
 
 @app.get("/api/documents")
-async def api_documents():
+async def api_documents(_: str = Depends(require_auth)):
     """List PDF documents in the documents directory with their index status."""
     docs_dir = settings.documents_dir
     index_dir = settings.faiss_index_dir
@@ -151,7 +217,7 @@ async def api_documents():
 
 
 @app.post("/api/upload")
-async def api_upload(file: UploadFile = File(...)):
+async def api_upload(file: UploadFile = File(...), _: str = Depends(require_auth)):
     """Upload a PDF file into the documents directory."""
     fname = file.filename or ""
     if not fname.lower().endswith(".pdf"):
@@ -168,7 +234,7 @@ async def api_upload(file: UploadFile = File(...)):
 
 
 @app.post("/api/reindex")
-async def api_reindex():
+async def api_reindex(_: str = Depends(require_auth)):
     """Force a rebuild of the FAISS index from ./documents."""
     try:
         build_vectorstore(force=True)

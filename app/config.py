@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     line_channel_access_token: str = ""
     line_channel_secret: str = ""
 
+    # --- Auth ---
+    admin_username: str = "admin"
+    admin_password: str = "admin1234"
+
     # --- Server ---
     host: str = "0.0.0.0"
     port: int = 8000
