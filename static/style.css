@@ -1705,3 +1705,212 @@ a { color: var(--accent); text-decoration: none; }
   /* Hide tab text on very narrow — keep icon + badge only */
   .settings-tab { padding: 9px 8px; }
 }
+
+/* =============================================================
+   MODE TOGGLE — RAG vs DB Query
+   ============================================================= */
+.mode-toggle-bar {
+  display: flex;
+  gap: 4px;
+  padding: 6px 16px 0;
+}
+
+.mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 13px;
+  border-radius: 20px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+  cursor: pointer;
+}
+
+.mode-btn:hover {
+  background: var(--hover);
+  color: var(--text-dim);
+}
+
+.mode-btn.active {
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--primary);
+  border-color: rgba(99, 102, 241, 0.35);
+}
+
+/* =============================================================
+   DB SELECTOR (shown in DB mode)
+   ============================================================= */
+.db-selector-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px 2px;
+}
+
+.db-selector-wrap.hidden {
+  display: none;
+}
+
+.db-selector-icon {
+  flex-shrink: 0;
+  color: var(--primary);
+  opacity: 0.8;
+}
+
+.db-selector {
+  flex: 1;
+  min-width: 0;
+  background: var(--panel);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 6px 10px;
+  cursor: pointer;
+  outline: none;
+  transition: border-color var(--transition);
+  appearance: auto;
+}
+
+.db-selector:focus {
+  border-color: var(--primary);
+}
+
+.db-selector option {
+  background: var(--panel);
+  color: var(--text);
+}
+
+/* =============================================================
+   DB QUERY RESULT — inside chat bubble
+   ============================================================= */
+.db-result-wrap {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.db-result-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+  text-align: left;
+  width: 100%;
+}
+
+.db-result-toggle:hover {
+  background: var(--hover);
+  color: var(--text-dim);
+}
+
+.db-result-toggle svg {
+  flex-shrink: 0;
+  transition: transform var(--transition);
+}
+
+.db-result-toggle span {
+  flex: 1;
+}
+
+/* Collapsible panel */
+.db-result-panel {
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--bg-chat);
+}
+
+.db-result-panel.hidden {
+  display: none;
+}
+
+/* Query code block */
+.db-query-code {
+  margin: 0;
+  padding: 12px 14px;
+  font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", "Courier New", monospace;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--accent);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.db-query-code code {
+  background: none;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
+/* Data table */
+.db-table-wrap {
+  overflow-x: auto;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.db-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.db-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.db-table th {
+  background: var(--panel);
+  color: var(--text-dim);
+  font-weight: 600;
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-2);
+  border-right: 1px solid var(--border);
+  letter-spacing: 0.02em;
+  font-size: 11.5px;
+  text-transform: uppercase;
+}
+
+.db-table th:last-child,
+.db-table td:last-child {
+  border-right: none;
+}
+
+.db-table td {
+  padding: 7px 12px;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid rgba(255,255,255,0.04);
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.db-table tbody tr:hover td {
+  background: var(--hover);
+}
+
+.db-table tbody tr:last-child td {
+  border-bottom: none;
+}

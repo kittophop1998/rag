@@ -26,3 +26,9 @@ pypdf>=5.1.0
 
 # --- LINE Messaging API ---
 line-bot-sdk>=3.14.2
+
+# --- Database connectors (Text-to-SQL / Text-to-Query) ---
+SQLAlchemy>=2.0
+pymysql>=1.1            # MySQL driver
+psycopg2-binary>=2.9    # PostgreSQL driver
+pymongo>=4.6            # MongoDB driver

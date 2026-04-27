@@ -12,3 +12,7 @@ venv/
 faiss_index/
 documents/*
 !documents/.gitkeep
+
+
+# db_connections.json
+# users.json

@@ -23,6 +23,7 @@ const CFG = {
   LOGOUT_URL:    '/api/auth/logout',
   ME_URL:        '/api/auth/me',
   DB_URL:        '/api/settings/databases',
+  DB_QUERY_URL:  '/api/db-query',
   USERS_URL:     '/api/users',
   STORAGE_KEY:   'rag_sessions_v2',
   TOKEN_KEY:     'rag_auth_token',
@@ -275,6 +276,18 @@ const API = {
     return json;
   },
 
+  // ── DB Natural-Language Query ────────────────────────────────────
+  async dbQuery(question, db_connection_id) {
+    const r = await fetch(CFG.DB_QUERY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...Auth.headers() },
+      body: JSON.stringify({ question, db_connection_id }),
+    });
+    const json = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(json.detail || `HTTP ${r.status}`);
+    return json;
+  },
+
   // ── User management ─────────────────────────────────────────────
   async listUsers() {
     const r = await fetch(CFG.USERS_URL, { headers: Auth.headers() });
@@ -452,8 +465,11 @@ class App {
   constructor() {
     this.currentSessionId = null;
     this.isStreaming = false;
-    this._dbEditingId   = null;
-    this._userEditingId = null;
+    this._dbEditingId    = null;
+    this._userEditingId  = null;
+    this._mode           = 'rag';   // 'rag' | 'db'
+    this._selectedDbId   = null;    // selected DB connection id in db mode
+    this._dbConnections  = [];      // cached list of enabled DB connections
   }
 
   /** Boot: check auth first, then bind events. */
@@ -474,6 +490,7 @@ class App {
     this._updateUserDisplay();
     this._bindSidebar();
     this._bindComposer();
+    this._bindModeToggle();
     this._bindSettings();
     this._bindKnowledgeBase();
     this._bindSuggestions();
@@ -672,6 +689,54 @@ class App {
     this._renderHistory();
   }
 
+  /* ── Mode Toggle (RAG ↔ DB Query) ──────────────────────────── */
+  _bindModeToggle() {
+    $('modeRagBtn').addEventListener('click', () => this._setMode('rag'));
+    $('modeDbBtn').addEventListener('click',  () => this._setMode('db'));
+  }
+
+  _setMode(mode) {
+    this._mode = mode;
+    $('modeRagBtn').classList.toggle('active', mode === 'rag');
+    $('modeDbBtn').classList.toggle('active',  mode === 'db');
+
+    const selectorWrap = $('dbSelectorWrap');
+    const hint         = $('composerHint');
+    const input        = $('chatInput');
+
+    if (mode === 'db') {
+      selectorWrap.classList.remove('hidden');
+      hint.textContent = 'Enter ส่ง · Shift+Enter ขึ้นบรรทัดใหม่ · ถาม OpenAI เกี่ยวกับฐานข้อมูลที่เลือก';
+      input.placeholder = 'เช่น "ยอดขายเดือนนี้เท่าไหร่?" หรือ "แสดงสินค้า 10 รายการล่าสุด"';
+      this._refreshDbSelector();
+    } else {
+      selectorWrap.classList.add('hidden');
+      hint.textContent = 'Enter ส่ง · Shift+Enter ขึ้นบรรทัดใหม่ · ระบบตอบจากเอกสาร FAISS เท่านั้น';
+      input.placeholder = 'ถามเกี่ยวกับเอกสารของบริษัท...';
+    }
+  }
+
+  async _refreshDbSelector() {
+    const sel = $('dbSelector');
+    try {
+      const data = await API.listDatabases();
+      this._dbConnections = (data.databases || []).filter(d => d.enabled);
+      const prev = this._selectedDbId;
+      sel.innerHTML = '<option value="">— เลือกฐานข้อมูล —</option>' +
+        this._dbConnections.map(db => {
+          const info = DB_TYPES[db.db_type] || DB_TYPES.other;
+          return `<option value="${esc(db.id)}">${info.icon} ${esc(db.name)} (${esc(info.label)})</option>`;
+        }).join('');
+      if (prev && this._dbConnections.find(d => d.id === prev)) {
+        sel.value = prev;
+      }
+    } catch {
+      sel.innerHTML = '<option value="">โหลดไม่สำเร็จ</option>';
+    }
+    sel.addEventListener('change', () => { this._selectedDbId = sel.value || null; }, { once: false });
+    sel.onchange = () => { this._selectedDbId = sel.value || null; };
+  }
+
   /* ── Composer ───────────────────────────────────────────────── */
   _bindComposer() {
     const input   = $('chatInput');
@@ -697,6 +762,17 @@ class App {
     const question = input.value.trim();
     if (!question) return;
 
+    // DB mode guard
+    if (this._mode === 'db') {
+      if (!this._selectedDbId) {
+        toast('กรุณาเลือกฐานข้อมูลก่อนส่งคำถาม', 'warn');
+        $('dbSelector').focus();
+        return;
+      }
+      return this._sendDbQuery(question);
+    }
+
+    // ── RAG mode ─────────────────────────────────────────────────
     input.value = '';
     input.style.height = 'auto';
     $('sendBtn').disabled = true;
@@ -738,6 +814,50 @@ class App {
       finalize();
       if (sources.length) this._appendSources(msgEl, sources);
       Store.addMessage(this.currentSessionId, { role: 'bot', content: fullText, sources });
+      this.isStreaming = false;
+      $('sendBtn').disabled = false;
+      this._scrollToBottom();
+      $('chatInput').focus();
+    }
+  }
+
+  async _sendDbQuery(question) {
+    const input = $('chatInput');
+    input.value = '';
+    input.style.height = 'auto';
+    $('sendBtn').disabled = true;
+
+    if (!this.currentSessionId) {
+      const session = Store.create(question);
+      this.currentSessionId = session.id;
+      this._renderHistory();
+    }
+
+    this._hideEmptyState();
+    this._appendUserBubble(question);
+    Store.addMessage(this.currentSessionId, { role: 'user', content: question });
+
+    const { msgEl, bubble, setContent, finalize } = this._createBotBubble(true);
+    this._scrollToBottom();
+
+    this.isStreaming = true;
+    let fullText = '';
+
+    try {
+      const result = await API.dbQuery(question, this._selectedDbId);
+      fullText = result.answer || '(ไม่มีคำตอบ)';
+      setContent(fullText, false);
+      finalize();
+      this._appendDbResult(msgEl, result);
+    } catch (err) {
+      if (err.message.includes('401') || err.message.toLowerCase().includes('session')) {
+        Auth.clearToken(); showLogin(); return;
+      }
+      fullText = `ขออภัยครับ เกิดข้อผิดพลาด: ${err.message}`;
+      setContent(fullText, false);
+      finalize();
+    } finally {
+      Store.addMessage(this.currentSessionId, { role: 'bot', content: fullText });
       this.isStreaming = false;
       $('sendBtn').disabled = false;
       this._scrollToBottom();
@@ -850,6 +970,75 @@ class App {
       bubble.appendChild(bar);
       bubble.appendChild(previewContainer);
     }
+  }
+
+  /* ── DB Query Result panel ──────────────────────────────────── */
+  _appendDbResult(msgEl, result) {
+    const body = msgEl.querySelector('.msg-body');
+    if (!body) return;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'db-result-wrap';
+
+    // ── Query panel (collapsible) ──────────────────────────────
+    const queryLang = result.db_type === 'mongodb' ? 'MongoDB' : 'SQL';
+    const queryToggle = document.createElement('button');
+    queryToggle.className = 'db-result-toggle';
+    queryToggle.innerHTML =
+      `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>` +
+      `<span>🔍 ${queryLang} ที่ใช้</span>`;
+
+    const queryPanel = document.createElement('div');
+    queryPanel.className = 'db-result-panel hidden';
+    queryPanel.innerHTML = `<pre class="db-query-code"><code>${esc(result.query || '')}</code></pre>`;
+
+    queryToggle.addEventListener('click', () => {
+      const open = queryPanel.classList.toggle('hidden');
+      queryToggle.querySelector('svg').style.transform = open ? '' : 'rotate(180deg)';
+    });
+
+    wrap.appendChild(queryToggle);
+    wrap.appendChild(queryPanel);
+
+    // ── Data table (collapsible) ───────────────────────────────
+    if (result.rows && result.rows.length > 0) {
+      const rowCount = result.row_count ?? result.rows.length;
+      const shown = result.rows.length;
+      const caption = rowCount > shown
+        ? `📊 ผลลัพธ์ (แสดง ${shown} จาก ${rowCount} แถว)`
+        : `📊 ผลลัพธ์ (${rowCount} แถว)`;
+
+      const tableToggle = document.createElement('button');
+      tableToggle.className = 'db-result-toggle';
+      tableToggle.innerHTML =
+        `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>` +
+        `<span>${caption}</span>`;
+
+      const tablePanel = document.createElement('div');
+      tablePanel.className = 'db-result-panel hidden';
+
+      const keys = Object.keys(result.rows[0]);
+      const thead = `<thead><tr>${keys.map(k => `<th>${esc(k)}</th>`).join('')}</tr></thead>`;
+      const tbody = `<tbody>${result.rows.map(row =>
+        `<tr>${keys.map(k => `<td>${esc(row[k] === null || row[k] === undefined ? '' : String(row[k]))}</td>`).join('')}</tr>`
+      ).join('')}</tbody>`;
+
+      const tableWrap = document.createElement('div');
+      tableWrap.className = 'db-table-wrap';
+      tableWrap.innerHTML = `<table class="db-table">${thead}${tbody}</table>`;
+      tablePanel.appendChild(tableWrap);
+
+      tableToggle.addEventListener('click', () => {
+        const open = tablePanel.classList.toggle('hidden');
+        tableToggle.querySelector('svg').style.transform = open ? '' : 'rotate(180deg)';
+      });
+
+      wrap.appendChild(tableToggle);
+      wrap.appendChild(tablePanel);
+    }
+
+    const bubble = body.querySelector('.bubble');
+    if (bubble) bubble.appendChild(wrap);
   }
 
   /* ── Suggestions (empty state) ──────────────────────────────── */

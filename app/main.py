@@ -34,12 +34,14 @@ from app.db_settings import (
     DatabaseConnectionUpdate,
     add_connection,
     delete_connection,
+    get_connection,
     list_connections,
     update_connection,
 )
 from app.indexer import build_vectorstore
 from app.line_webhook import router as line_router
 from app.rag import rag_engine
+from app.text_to_sql import text_to_query_engine
 from app.user_store import (
     UserCreate,
     UserResponse,
@@ -103,6 +105,11 @@ class SourceItem(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     sources: List[SourceItem] = []
+
+
+class DBQueryRequest(BaseModel):
+    question: str = Field(..., min_length=1, description="Natural-language question about the database")
+    db_connection_id: str = Field(..., description="ID of the DatabaseConnection to query")
 
 
 # ---------------------------------------------------------------------------
@@ -264,6 +271,42 @@ async def api_delete_database(conn_id: str, _: UserSession = Depends(require_adm
     if not delete_connection(conn_id):
         raise HTTPException(status_code=404, detail="ไม่พบ Database ที่ระบุ")
     return {"status": "ok"}
+
+
+# ── Database Query via Natural Language (all authenticated users) ──────────────
+@app.post("/api/db-query", tags=["database"])
+async def api_db_query(
+    req: DBQueryRequest,
+    _: UserSession = Depends(require_auth),
+):
+    """Convert a natural-language question into a DB query and return an answer.
+
+    Steps performed server-side:
+    1. Look up the saved DatabaseConnection by *db_connection_id*.
+    2. Read the database schema via SQLAlchemy / pymongo.
+    3. Ask GPT to generate a SQL or MongoDB query.
+    4. Execute the query (read-only, max 200 rows).
+    5. Ask GPT to summarise the result in Thai.
+    """
+    conn = get_connection(req.db_connection_id)
+    if not conn:
+        raise HTTPException(status_code=404, detail="ไม่พบ Database connection ที่ระบุ")
+    if not conn.enabled:
+        raise HTTPException(status_code=400, detail="Database connection นี้ถูกปิดใช้งาน")
+
+    try:
+        result = text_to_query_engine.ask(
+            question=req.question,
+            db_type=conn.db_type,
+            db_url=conn.url,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("db-query failed: %s", exc)
+        raise HTTPException(status_code=500, detail="ระบบมีปัญหาชั่วคราว กรุณาลองใหม่") from exc
+
+    return result
 
 
 # ── Chat (all authenticated users) ────────────────────────────────────────────
