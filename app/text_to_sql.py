@@ -26,36 +26,48 @@ from app.db_query import execute_query
 
 logger = logging.getLogger(__name__)
 
+# Maximum characters of schema text forwarded to the LLM.
+# ~4 chars ≈ 1 token, so 20 000 chars ≈ 5 000 tokens — leaves plenty of
+# headroom under the default 30 000 TPM limit.
+_MAX_SCHEMA_CHARS = 20_000
+
 # ---------------------------------------------------------------------------
 # Prompts
 # ---------------------------------------------------------------------------
 _SQL_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """คุณคือ SQL expert เชี่ยวชาญ {dialect}
-สร้าง SQL query จากคำถามของผู้ใช้ โดยใช้ schema ที่ให้มาเท่านั้น
+สร้าง SQL query จากคำถามของผู้ใช้ โดยใช้ Schema ด้านล่างเท่านั้น
 
 Schema:
 {schema}
 
-กฎ:
+กฎเข้มงวด — ต้องปฏิบัติตามทุกข้อ:
 - ใช้เฉพาะ SELECT statement เท่านั้น ห้าม INSERT / UPDATE / DELETE / DROP ทุกกรณี
 - ตอบเป็น SQL query ล้วนๆ ไม่มีคำอธิบาย ไม่มี markdown code fence
-- ถ้าไม่แน่ใจชื่อคอลัมน์ให้ใช้ LOWER() หรือ LIKE
+- ห้ามสมมติหรือเดาชื่อ column เด็ดขาด ใช้ได้เฉพาะชื่อ column ที่ปรากฏใน Schema ด้านบนเท่านั้น
+- ก่อนใช้ column ใด ให้ตรวจสอบให้มั่นใจว่า column นั้นมีอยู่จริงใน Schema
+- ถ้าต้องการ column ที่แทนรหัสสินค้า / ชื่อสินค้า ฯลฯ ให้ดูจาก Schema ก่อน อย่าเดาชื่อเอง
+- หา column ที่ต้องการใน Schema ไม่เจอ ให้ใช้เฉพาะ column ที่มั่นใจว่ามีจริง เช่น id, name
 - เพิ่ม LIMIT 200 ถ้าคำถามไม่ได้ระบุจำนวนผลลัพธ์"""),
     ("human", "{question}"),
 ])
 
 _MONGO_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """คุณคือ MongoDB expert
-สร้าง MongoDB query จากคำถามของผู้ใช้ โดยใช้ schema ที่ให้มาเท่านั้น
+สร้าง MongoDB query จากคำถามของผู้ใช้ โดยใช้ Schema ด้านล่างเท่านั้น
 
 Schema (collections & fields):
 {schema}
 
-กฎ:
+กฎเข้มงวด — ต้องปฏิบัติตามทุกข้อ:
 - ตอบเป็น JSON object เท่านั้น ไม่มีคำอธิบาย ไม่มี markdown code fence
 - รูปแบบที่ยอมรับ:
     Simple find  → {{"collection":"name","filter":{{...}},"sort":{{...}},"projection":{{...}}}}
     Aggregation  → {{"collection":"name","pipeline":[{{...}},...] }}
+- ห้ามสมมติหรือเดาชื่อ field เด็ดขาด ใช้ได้เฉพาะชื่อ field ที่ปรากฏใน Schema ด้านบนเท่านั้น
+- ก่อนใช้ field ใด ให้ตรวจสอบให้มั่นใจว่า field นั้นมีอยู่จริงใน Schema
+- ถ้าต้องการ field ที่แทนรหัสสินค้า / ชื่อสินค้า ฯลฯ ให้ดูจาก Schema ก่อน อย่าเดาชื่อเอง
+- หา field ที่ต้องการใน Schema ไม่เจอ ให้ใช้เฉพาะ field ที่มั่นใจว่ามีจริง เช่น _id, name
 - ห้ามใช้ $out หรือ $merge ใน pipeline
 - ใส่ {{"$limit": 200}} ใน pipeline ถ้าไม่มีการระบุจำนวน"""),
     ("human", "{question}"),
@@ -103,6 +115,7 @@ class TextToQueryEngine:
                 model=settings.openai_chat_model,
                 api_key=settings.openai_api_key,
                 temperature=0,
+                max_tokens=1024,  # queries are short; cap output to save TPM
             )
         return self._llm
 
@@ -123,6 +136,10 @@ class TextToQueryEngine:
             schema = get_schema_description(db_type_l, db_url)
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(f"ไม่สามารถอ่าน schema ได้: {exc}") from exc
+
+        if len(schema) > _MAX_SCHEMA_CHARS:
+            schema = schema[:_MAX_SCHEMA_CHARS] + "\n...(schema ถูกตัดทอนเนื่องจากมีขนาดใหญ่เกินไป)"
+            logger.warning("[text_to_sql] schema truncated to %d chars", _MAX_SCHEMA_CHARS)
 
         # ── 2. Generate query ─────────────────────────────────────────────
         try:

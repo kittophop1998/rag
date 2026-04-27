@@ -729,50 +729,200 @@ class App {
 
   /* ── Mode Toggle (RAG ↔ DB Query) ──────────────────────────── */
   _bindModeToggle() {
-    $('modeRagBtn').addEventListener('click', () => this._setMode('rag'));
-    $('modeDbBtn').addEventListener('click',  () => this._setMode('db'));
+    const modeBtn = $('composerModeBtn');
+    const dbBtn   = $('composerDbChip');
+    const modePop = $('composerModePopup');
+    const dbPop   = $('composerDbPopup');
+
+    modeBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      this._closePopup('db');
+      this._togglePopup('mode');
+    });
+
+    dbBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      this._closePopup('mode');
+      this._togglePopup('db');
+      this._refreshDbSelector();
+    });
+
+    modePop.querySelectorAll('.composer-popup-item').forEach(item => {
+      item.addEventListener('click', e => {
+        e.stopPropagation();
+        const m = item.dataset.mode;
+        this._setMode(m);
+        this._closePopup('mode');
+      });
+    });
+
+    document.addEventListener('click', e => {
+      if (!e.target.closest('.composer-tools')) {
+        this._closePopup('mode');
+        this._closePopup('db');
+      }
+    });
+
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        this._closePopup('mode');
+        this._closePopup('db');
+      }
+    });
+  }
+
+  _positionPopup(popup, btn) {
+    const r   = btn.getBoundingClientRect();
+    const vh  = window.innerHeight;
+    const pw  = Math.max(popup.offsetWidth || 250, 250);
+    // Show above the chip
+    const spaceAbove = r.top;
+    const spaceBelow = vh - r.bottom;
+    let top;
+    if (spaceAbove >= 200 || spaceAbove >= spaceBelow) {
+      // Open upward
+      popup.style.bottom = `${vh - r.top + 8}px`;
+      popup.style.top    = 'auto';
+    } else {
+      // Open downward
+      popup.style.top    = `${r.bottom + 8}px`;
+      popup.style.bottom = 'auto';
+    }
+    // Align left with chip, but don't overflow right edge
+    let left = r.left;
+    if (left + pw > window.innerWidth - 8) left = window.innerWidth - pw - 8;
+    popup.style.left = `${Math.max(8, left)}px`;
+  }
+
+  _togglePopup(which) {
+    const popup = which === 'mode' ? $('composerModePopup') : $('composerDbPopup');
+    const btn   = which === 'mode' ? $('composerModeBtn')   : $('composerDbChip');
+    const isOpen = popup.style.display !== 'none' && popup.style.display !== '';
+    if (isOpen) {
+      popup.style.display = 'none';
+      btn.setAttribute('aria-expanded', 'false');
+    } else {
+      popup.style.display = 'block';
+      this._positionPopup(popup, btn);
+      btn.setAttribute('aria-expanded', 'true');
+    }
+  }
+
+  _closePopup(which) {
+    const popup = which === 'mode' ? $('composerModePopup') : $('composerDbPopup');
+    const btn   = which === 'mode' ? $('composerModeBtn')   : $('composerDbChip');
+    if (popup.style.display !== 'none') {
+      popup.style.display = 'none';
+      btn.setAttribute('aria-expanded', 'false');
+    }
   }
 
   _setMode(mode) {
     this._mode = mode;
-    $('modeRagBtn').classList.toggle('active', mode === 'rag');
-    $('modeDbBtn').classList.toggle('active',  mode === 'db');
 
-    const selectorWrap = $('dbSelectorWrap');
-    const hint         = $('composerHint');
-    const input        = $('chatInput');
+    const modeLabel = $('composerModeLabel');
+    const modeIcon  = $('composerModeIcon');
+    const dbChip    = $('composerDbChip');
+    const hint      = $('composerHint');
+    const input     = $('chatInput');
+
+    $('composerModePopup').querySelectorAll('.composer-popup-item').forEach(it => {
+      it.classList.toggle('active', it.dataset.mode === mode);
+    });
 
     if (mode === 'db') {
-      selectorWrap.classList.remove('hidden');
+      modeLabel.textContent = 'ถามฐานข้อมูล';
+      modeIcon.innerHTML =
+        '<ellipse cx="12" cy="5" rx="9" ry="3"/>' +
+        '<path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>' +
+        '<path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>';
+      dbChip.classList.remove('hidden');
       hint.textContent = 'Enter ส่ง · Shift+Enter ขึ้นบรรทัดใหม่ · ถาม OpenAI เกี่ยวกับฐานข้อมูลที่เลือก';
       input.placeholder = 'เช่น "ยอดขายเดือนนี้เท่าไหร่?" หรือ "แสดงสินค้า 10 รายการล่าสุด"';
       this._refreshDbSelector();
     } else {
-      selectorWrap.classList.add('hidden');
+      modeLabel.textContent = 'ถามเอกสาร';
+      modeIcon.innerHTML =
+        '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>' +
+        '<path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>';
+      dbChip.classList.add('hidden');
       hint.textContent = 'Enter ส่ง · Shift+Enter ขึ้นบรรทัดใหม่ · ระบบตอบจากเอกสาร FAISS เท่านั้น';
       input.placeholder = 'ถามเกี่ยวกับเอกสารของบริษัท...';
     }
   }
 
+  _updateDbChipLabel() {
+    const chip  = $('composerDbChip');
+    const label = $('composerDbLabel');
+    const sel   = this._dbConnections.find(d => d.id === this._selectedDbId);
+    if (sel) {
+      const info = DB_TYPES[sel.db_type] || DB_TYPES.other;
+      label.textContent = `${info.icon} ${sel.name}`;
+      chip.classList.remove('is-empty');
+    } else {
+      label.textContent = 'เลือกฐานข้อมูล';
+      chip.classList.add('is-empty');
+    }
+  }
+
   async _refreshDbSelector() {
-    const sel = $('dbSelector');
+    const list   = $('composerDbList');
+    const hidden = $('dbSelector');
+    list.innerHTML = '<div class="composer-popup-empty">กำลังโหลด...</div>';
     try {
       const data = await API.listDatabases();
       this._dbConnections = (data.databases || []).filter(d => d.enabled);
-      const prev = this._selectedDbId;
-      sel.innerHTML = '<option value="">— เลือกฐานข้อมูล —</option>' +
-        this._dbConnections.map(db => {
+
+      hidden.innerHTML = '<option value="">— เลือกฐานข้อมูล —</option>' +
+        this._dbConnections.map(db =>
+          `<option value="${esc(db.id)}">${esc(db.name)}</option>`
+        ).join('');
+
+      if (this._selectedDbId && !this._dbConnections.find(d => d.id === this._selectedDbId)) {
+        this._selectedDbId = null;
+      }
+      hidden.value = this._selectedDbId || '';
+
+      if (!this._dbConnections.length) {
+        list.innerHTML =
+          '<div class="composer-popup-empty">ยังไม่มีฐานข้อมูลที่เปิดใช้งาน<br/>' +
+          '<span style="font-size:11px">เพิ่มได้ที่ตั้งค่าระบบ → ฐานข้อมูล</span></div>';
+      } else {
+        list.innerHTML = this._dbConnections.map(db => {
           const info = DB_TYPES[db.db_type] || DB_TYPES.other;
-          return `<option value="${esc(db.id)}">${info.icon} ${esc(db.name)} (${esc(info.label)})</option>`;
+          const active = db.id === this._selectedDbId ? 'active' : '';
+          return `
+            <button type="button" class="composer-popup-item ${active}" data-id="${esc(db.id)}">
+              <span class="composer-popup-icon" style="font-size:16px">${info.icon}</span>
+              <span class="composer-popup-text">
+                <span class="composer-popup-title">${esc(db.name)}</span>
+                <span class="composer-popup-desc">${esc(info.label)}</span>
+              </span>
+              <svg class="composer-popup-check" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+            </button>`;
         }).join('');
-      if (prev && this._dbConnections.find(d => d.id === prev)) {
-        sel.value = prev;
+
+        list.querySelectorAll('.composer-popup-item').forEach(it => {
+          it.addEventListener('click', e => {
+            e.stopPropagation();
+            const id = it.dataset.id;
+            this._selectedDbId = id;
+            hidden.value = id;
+            this._updateDbChipLabel();
+            list.querySelectorAll('.composer-popup-item').forEach(x =>
+              x.classList.toggle('active', x.dataset.id === id)
+            );
+            this._closePopup('db');
+          });
+        });
       }
     } catch {
-      sel.innerHTML = '<option value="">โหลดไม่สำเร็จ</option>';
+      list.innerHTML = '<div class="composer-popup-empty">โหลดไม่สำเร็จ</div>';
     }
-    sel.addEventListener('change', () => { this._selectedDbId = sel.value || null; }, { once: false });
-    sel.onchange = () => { this._selectedDbId = sel.value || null; };
+    this._updateDbChipLabel();
   }
 
   /* ── Composer ───────────────────────────────────────────────── */
@@ -804,7 +954,7 @@ class App {
     if (this._mode === 'db') {
       if (!this._selectedDbId) {
         toast('กรุณาเลือกฐานข้อมูลก่อนส่งคำถาม', 'warn');
-        $('dbSelector').focus();
+        $('composerDbChip').click();
         return;
       }
       return this._sendDbQuery(question);

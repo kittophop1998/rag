@@ -261,52 +261,107 @@
 
       <!-- Composer (floating input bar) -->
       <div class="composer-wrap">
-
-        <!-- Mode toggle bar -->
-        <div class="mode-toggle-bar">
-          <button class="mode-btn active" id="modeRagBtn" data-mode="rag">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round">
-              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-            </svg>
-            ถามเอกสาร
-          </button>
-          <button class="mode-btn" id="modeDbBtn" data-mode="db">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round">
-              <ellipse cx="12" cy="5" rx="9" ry="3" />
-              <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
-              <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
-            </svg>
-            ถามฐานข้อมูล
-          </button>
-        </div>
-
-        <!-- DB selector (shown only in db mode) -->
-        <div id="dbSelectorWrap" class="db-selector-wrap hidden">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round" class="db-selector-icon">
-            <ellipse cx="12" cy="5" rx="9" ry="3" />
-            <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
-            <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
-          </svg>
-          <select id="dbSelector" class="db-selector" aria-label="เลือกฐานข้อมูล">
-            <option value="">— เลือกฐานข้อมูล —</option>
-          </select>
-        </div>
-
         <form id="composer" class="composer" autocomplete="off">
           <div class="composer-box">
-            <textarea id="chatInput" rows="1" placeholder="ถามเกี่ยวกับเอกสารของบริษัท..."
-              aria-label="พิมพ์คำถาม"></textarea>
-            <button type="submit" id="sendBtn" class="send-btn" disabled aria-label="ส่งคำถาม">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-                stroke-linecap="round" stroke-linejoin="round">
-                <line x1="12" y1="19" x2="12" y2="5" />
-                <polyline points="5 12 12 5 19 12" />
-              </svg>
-            </button>
+
+            <!-- Mode chip (top-left of composer) -->
+            <div class="composer-tools">
+              <button type="button" id="composerModeBtn" class="composer-mode-chip" aria-haspopup="true"
+                aria-expanded="false" title="เลือกโหมดการถาม">
+                <svg id="composerModeIcon" width="13" height="13" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                </svg>
+                <span id="composerModeLabel">ถามเอกสาร</span>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="chevron">
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </button>
+
+              <!-- DB selector chip (shown only in db mode) -->
+              <button type="button" id="composerDbChip" class="composer-db-chip hidden" aria-haspopup="true"
+                aria-expanded="false" title="เลือกฐานข้อมูล">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <ellipse cx="12" cy="5" rx="9" ry="3" />
+                  <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+                  <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+                </svg>
+                <span id="composerDbLabel">เลือกฐานข้อมูล</span>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="chevron">
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </button>
+
+              <!-- Mode popup -->
+              <div id="composerModePopup" class="composer-popup" style="display:none" role="menu">
+                <div class="composer-popup-header">โหมดการถาม</div>
+                <button type="button" class="composer-popup-item" data-mode="rag" role="menuitemradio">
+                  <span class="composer-popup-icon">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                      stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                    </svg>
+                  </span>
+                  <span class="composer-popup-text">
+                    <span class="composer-popup-title">ถามเอกสาร</span>
+                    <span class="composer-popup-desc">ค้นหาคำตอบจากไฟล์ใน Index</span>
+                  </span>
+                  <svg class="composer-popup-check" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </button>
+                <button type="button" class="composer-popup-item" data-mode="db" role="menuitemradio">
+                  <span class="composer-popup-icon">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                      stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <ellipse cx="12" cy="5" rx="9" ry="3" />
+                      <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+                      <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+                    </svg>
+                  </span>
+                  <span class="composer-popup-text">
+                    <span class="composer-popup-title">ถามฐานข้อมูล</span>
+                    <span class="composer-popup-desc">สอบถาม SQL ผ่าน OpenAI</span>
+                  </span>
+                  <svg class="composer-popup-check" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <!-- DB selector popup -->
+              <div id="composerDbPopup" class="composer-popup" style="display:none" role="menu">
+                <div class="composer-popup-header">เลือกฐานข้อมูล</div>
+                <div id="composerDbList" class="composer-popup-dblist">
+                  <div class="composer-popup-empty">กำลังโหลด...</div>
+                </div>
+              </div>
+
+              <!-- Hidden legacy select (kept for state compatibility) -->
+              <select id="dbSelector" class="hidden" aria-hidden="true" tabindex="-1">
+                <option value="">— เลือกฐานข้อมูล —</option>
+              </select>
+            </div>
+
+            <!-- Input row -->
+            <div class="composer-input-row">
+              <textarea id="chatInput" rows="1" placeholder="ถามเกี่ยวกับเอกสารของบริษัท..."
+                aria-label="พิมพ์คำถาม"></textarea>
+              <button type="submit" id="sendBtn" class="send-btn" disabled aria-label="ส่งคำถาม">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="12" y1="19" x2="12" y2="5" />
+                  <polyline points="5 12 12 5 19 12" />
+                </svg>
+              </button>
+            </div>
           </div>
           <p class="composer-hint" id="composerHint">Enter ส่ง · Shift+Enter ขึ้นบรรทัดใหม่ · ระบบตอบจากเอกสาร FAISS เท่านั้น</p>
         </form>
