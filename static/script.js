@@ -24,6 +24,7 @@ const CFG = {
   ME_URL:        '/api/auth/me',
   DB_URL:        '/api/settings/databases',
   DB_QUERY_URL:  '/api/db-query',
+  URLS_URL:      '/api/settings/urls',
   USERS_URL:     '/api/users',
   STORAGE_KEY:   'rag_sessions_v2',
   TOKEN_KEY:     'rag_auth_token',
@@ -288,6 +289,42 @@ const API = {
     return json;
   },
 
+  // ── URL Source management ────────────────────────────────────────
+  async listUrlSources() {
+    const r = await fetch(CFG.URLS_URL, { headers: Auth.headers() });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  },
+
+  async addUrlSource(data) {
+    const r = await fetch(CFG.URLS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...Auth.headers() },
+      body: JSON.stringify(data),
+    });
+    const json = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(json.detail || `HTTP ${r.status}`);
+    return json;
+  },
+
+  async updateUrlSource(id, data) {
+    const r = await fetch(`${CFG.URLS_URL}/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...Auth.headers() },
+      body: JSON.stringify(data),
+    });
+    const json = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(json.detail || `HTTP ${r.status}`);
+    return json;
+  },
+
+  async deleteUrlSource(id) {
+    const r = await fetch(`${CFG.URLS_URL}/${id}`, { method: 'DELETE', headers: Auth.headers() });
+    const json = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(json.detail || `HTTP ${r.status}`);
+    return json;
+  },
+
   // ── User management ─────────────────────────────────────────────
   async listUsers() {
     const r = await fetch(CFG.USERS_URL, { headers: Auth.headers() });
@@ -466,6 +503,7 @@ class App {
     this.currentSessionId = null;
     this.isStreaming = false;
     this._dbEditingId    = null;
+    this._urlEditingId   = null;
     this._userEditingId  = null;
     this._mode           = 'rag';   // 'rag' | 'db'
     this._selectedDbId   = null;    // selected DB connection id in db mode
@@ -1134,6 +1172,7 @@ class App {
       modal.classList.remove('open');
       modal.setAttribute('aria-hidden', 'true');
       this._hideDbForm();
+      this._hideUrlForm();
     };
 
     $('settingsBtn').addEventListener('click', () => {
@@ -1169,6 +1208,7 @@ class App {
           panel.removeAttribute('aria-hidden');
         }
         if (tab.dataset.tab === 'databases') this._loadDatabases();
+        if (tab.dataset.tab === 'urls')      this._loadUrlSources();
         if (tab.dataset.tab === 'users')     this._loadUsers();
       });
     });
@@ -1177,6 +1217,11 @@ class App {
     $('addDbBtn').addEventListener('click', () => this._showDbForm());
     $('dbFormCancelBtn').addEventListener('click', () => this._hideDbForm());
     $('dbFormSaveBtn').addEventListener('click', () => this._saveDatabase());
+
+    // URLs: add / edit
+    $('addUrlBtn').addEventListener('click', () => this._showUrlForm());
+    $('urlFormCancelBtn').addEventListener('click', () => this._hideUrlForm());
+    $('urlFormSaveBtn').addEventListener('click', () => this._saveUrlSource());
 
     // Users: add / edit
     $('addUserBtn').addEventListener('click', () => this._showUserForm());
@@ -1343,6 +1388,169 @@ class App {
       }
       this._hideDbForm();
       await this._loadDatabases();
+    } catch (err) {
+      toast(`บันทึกไม่สำเร็จ: ${err.message}`, 'error');
+    } finally {
+      saveBtn.disabled = false;
+    }
+  }
+
+  /* ── URL Source Management ───────────────────────────────────── */
+  async _loadUrlSources() {
+    const list = $('urlList');
+    try {
+      const data = await API.listUrlSources();
+      const sources = data.urls || [];
+
+      const badge = $('urlCountBadge');
+      if (sources.length > 0) {
+        badge.textContent = sources.length;
+        badge.classList.remove('hidden');
+      } else {
+        badge.classList.add('hidden');
+      }
+
+      if (!sources.length) {
+        list.innerHTML = `
+          <div class="db-list-empty">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+              stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="2" y1="12" x2="22" y2="12"/>
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+            </svg>
+            <p>ยังไม่มี URL แหล่งข้อมูล<br>กด "เพิ่ม URL" เพื่อเริ่มต้น</p>
+          </div>`;
+        return;
+      }
+
+      list.innerHTML = sources.map(src => {
+        const depthLabel = src.crawl_depth >= 1 ? 'ดึงลิงค์ภายใน' : 'หน้าเดียว';
+        const lastIndexed = src.last_indexed_at
+          ? `Index แล้วเมื่อ ${new Date(src.last_indexed_at).toLocaleString('th-TH')}`
+          : 'ยังไม่ได้ Index';
+        return `
+          <div class="db-item" data-id="${src.id}">
+            <div class="db-item-left">
+              <span class="db-item-icon">🌐</span>
+              <div class="db-item-info">
+                <div class="db-item-name">${esc(src.name)}</div>
+                <div class="db-item-meta">
+                  <span class="db-type-badge">depth ${src.crawl_depth} · ${depthLabel}</span>
+                  <span class="db-item-url" title="${esc(src.url)}">${esc(src.url)}</span>
+                </div>
+                ${src.description ? `<div class="db-item-desc">${esc(src.description)}</div>` : ''}
+                <div class="db-item-desc" style="opacity:.55;font-size:.75rem">${esc(lastIndexed)}</div>
+              </div>
+            </div>
+            <div class="db-item-actions">
+              <label class="db-toggle" title="${src.enabled ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}">
+                <input type="checkbox" class="db-toggle-input url-toggle-input"
+                  data-url-id="${src.id}" ${src.enabled ? 'checked' : ''} />
+                <span class="db-toggle-track"></span>
+              </label>
+              <button class="db-action-btn db-edit-btn" data-edit="${src.id}" title="แก้ไข">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+              </button>
+              <button class="db-action-btn db-delete-btn" data-delete="${src.id}" title="ลบ">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="3 6 5 6 21 6"/>
+                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                  <path d="M10 11v6M14 11v6"/>
+                  <path d="M9 6V4h6v2"/>
+                </svg>
+              </button>
+            </div>
+          </div>`;
+      }).join('');
+
+      list.querySelectorAll('.url-toggle-input').forEach(chk => {
+        chk.addEventListener('change', async () => {
+          try {
+            await API.updateUrlSource(chk.dataset.urlId, { enabled: chk.checked });
+            toast(chk.checked ? 'เปิดใช้งานแล้ว' : 'ปิดใช้งานแล้ว', 'success', 2000);
+          } catch (err) {
+            toast(`ไม่สำเร็จ: ${err.message}`, 'error');
+            chk.checked = !chk.checked;
+          }
+        });
+      });
+
+      list.querySelectorAll('[data-edit]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const src = sources.find(s => s.id === btn.dataset.edit);
+          if (src) this._showUrlForm(src);
+        });
+      });
+
+      list.querySelectorAll('[data-delete]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if (!confirm('ต้องการลบ URL นี้ใช่หรือไม่?')) return;
+          try {
+            await API.deleteUrlSource(btn.dataset.delete);
+            toast('ลบ URL แล้ว', 'success');
+            await this._loadUrlSources();
+          } catch (err) {
+            toast(`ลบไม่สำเร็จ: ${err.message}`, 'error');
+          }
+        });
+      });
+
+    } catch (err) {
+      list.innerHTML = `<p class="docs-empty">โหลดข้อมูลไม่สำเร็จ: ${esc(err.message)}</p>`;
+    }
+  }
+
+  _showUrlForm(src = null) {
+    $('urlFormTitle').textContent = src ? 'แก้ไข URL' : 'เพิ่ม URL ใหม่';
+    $('urlFormId').value    = src ? src.id : '';
+    $('urlFormName').value  = src ? src.name : '';
+    $('urlFormUrl').value   = src ? src.url : '';
+    $('urlFormDesc').value  = src ? src.description : '';
+    $('urlFormDepth').value = src ? String(src.crawl_depth) : '0';
+    this._urlEditingId = src ? src.id : null;
+    $('urlForm').classList.remove('hidden');
+    $('urlFormName').focus();
+  }
+
+  _hideUrlForm() {
+    $('urlForm').classList.add('hidden');
+    this._urlEditingId = null;
+  }
+
+  async _saveUrlSource() {
+    const name        = $('urlFormName').value.trim();
+    const url         = $('urlFormUrl').value.trim();
+    const description = $('urlFormDesc').value.trim();
+    const crawl_depth = parseInt($('urlFormDepth').value, 10);
+
+    if (!name || !url) {
+      toast('กรุณากรอกชื่อและ URL ให้ครบ', 'warn');
+      return;
+    }
+    try { new URL(url); } catch {
+      toast('URL ไม่ถูกต้อง กรุณาตรวจสอบ', 'warn');
+      return;
+    }
+
+    const saveBtn = $('urlFormSaveBtn');
+    saveBtn.disabled = true;
+
+    try {
+      if (this._urlEditingId) {
+        await API.updateUrlSource(this._urlEditingId, { name, url, description, crawl_depth });
+        toast('อัปเดต URL เรียบร้อย', 'success');
+      } else {
+        await API.addUrlSource({ name, url, description, crawl_depth, enabled: true });
+        toast('เพิ่ม URL เรียบร้อย — กด Rebuild Index เพื่อนำเข้าเนื้อหา', 'success', 5000);
+      }
+      this._hideUrlForm();
+      await this._loadUrlSources();
     } catch (err) {
       toast(`บันทึกไม่สำเร็จ: ${err.message}`, 'error');
     } finally {

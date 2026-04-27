@@ -359,6 +359,16 @@
             ฐานข้อมูล
             <span id="dbCountBadge" class="tab-badge hidden">0</span>
           </button>
+          <button class="settings-tab" data-tab="urls">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="2" y1="12" x2="22" y2="12" />
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+            </svg>
+            เว็บไซต์
+            <span id="urlCountBadge" class="tab-badge hidden">0</span>
+          </button>
           <button class="settings-tab" data-tab="users">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
               stroke-linecap="round" stroke-linejoin="round">
@@ -473,6 +483,78 @@
                 <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
               </svg>
               <p>ยังไม่มีฐานข้อมูล<br>กด "เพิ่มฐานข้อมูล" เพื่อเริ่มต้น</p>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Tab: URLs (Website data sources) -->
+        <div id="tabUrls" class="modal-body settings-tab-panel" aria-hidden="true">
+
+          <div class="db-header-row">
+            <div>
+              <p class="setting-hint" style="margin:0">เพิ่ม URL เว็บไซต์เพื่อให้ระบบดึงเนื้อหามา Index<br>
+                เนื้อหาจะถูกรวมเข้า FAISS เมื่อกด <strong>Rebuild Index</strong></p>
+            </div>
+            <button id="addUrlBtn" class="btn-add-db">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                stroke-linecap="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              เพิ่ม URL
+            </button>
+          </div>
+
+          <!-- Add / Edit URL Form (hidden by default) -->
+          <div id="urlForm" class="db-form hidden">
+            <div class="db-form-title" id="urlFormTitle">เพิ่ม URL ใหม่</div>
+            <input type="hidden" id="urlFormId" />
+            <div class="db-form-grid">
+              <div class="db-form-field">
+                <label class="db-form-label">ชื่อแหล่งข้อมูล <span class="required">*</span></label>
+                <input type="text" id="urlFormName" class="db-form-input" placeholder="เช่น เว็บไซต์บริษัท" />
+              </div>
+              <div class="db-form-field">
+                <label class="db-form-label">ความลึกในการดึงข้อมูล</label>
+                <select id="urlFormDepth" class="db-form-input db-form-select">
+                  <option value="0">0 — เฉพาะหน้าที่ระบุ</option>
+                  <option value="1">1 — รวมลิงค์ภายในหน้า</option>
+                </select>
+              </div>
+            </div>
+            <div class="db-form-field">
+              <label class="db-form-label">URL <span class="required">*</span></label>
+              <input type="url" id="urlFormUrl" class="db-form-input db-form-url"
+                placeholder="https://example.com/page" spellcheck="false" />
+            </div>
+            <div class="db-form-field">
+              <label class="db-form-label">คำอธิบาย (ไม่บังคับ)</label>
+              <input type="text" id="urlFormDesc" class="db-form-input"
+                placeholder="อธิบายเนื้อหาของหน้าเว็บนี้" />
+            </div>
+            <div class="db-form-actions">
+              <button type="button" id="urlFormCancelBtn" class="btn-db-cancel">ยกเลิก</button>
+              <button type="button" id="urlFormSaveBtn" class="btn-db-save">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                  stroke-linecap="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                บันทึก
+              </button>
+            </div>
+          </div>
+
+          <!-- URL Source List -->
+          <div id="urlList" class="db-list">
+            <div class="db-list-empty">
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="2" y1="12" x2="22" y2="12" />
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+              </svg>
+              <p>ยังไม่มี URL แหล่งข้อมูล<br>กด "เพิ่ม URL" เพื่อเริ่มต้น</p>
             </div>
           </div>
 

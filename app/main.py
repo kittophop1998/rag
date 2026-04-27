@@ -38,6 +38,15 @@ from app.db_settings import (
     list_connections,
     update_connection,
 )
+from app.url_sources import (
+    UrlSourceCreate,
+    UrlSourceUpdate,
+    add_url_source,
+    delete_url_source,
+    get_url_source,
+    list_url_sources,
+    update_url_source,
+)
 from app.indexer import build_vectorstore
 from app.line_webhook import router as line_router
 from app.rag import rag_engine
@@ -270,6 +279,40 @@ async def api_update_database(
 async def api_delete_database(conn_id: str, _: UserSession = Depends(require_admin)):
     if not delete_connection(conn_id):
         raise HTTPException(status_code=404, detail="ไม่พบ Database ที่ระบุ")
+    return {"status": "ok"}
+
+
+# ── URL Source Settings (admin only) ──────────────────────────────────────────
+@app.get("/api/settings/urls", tags=["settings"])
+async def api_list_urls(_: UserSession = Depends(require_admin)):
+    return {"urls": [s.model_dump() for s in list_url_sources()]}
+
+
+@app.post("/api/settings/urls", tags=["settings"])
+async def api_add_url(
+    data: UrlSourceCreate,
+    _: UserSession = Depends(require_admin),
+):
+    source = add_url_source(data)
+    return source.model_dump()
+
+
+@app.patch("/api/settings/urls/{source_id}", tags=["settings"])
+async def api_update_url(
+    source_id: str,
+    data: UrlSourceUpdate,
+    _: UserSession = Depends(require_admin),
+):
+    source = update_url_source(source_id, data)
+    if not source:
+        raise HTTPException(status_code=404, detail="ไม่พบ URL source ที่ระบุ")
+    return source.model_dump()
+
+
+@app.delete("/api/settings/urls/{source_id}", tags=["settings"])
+async def api_delete_url(source_id: str, _: UserSession = Depends(require_admin)):
+    if not delete_url_source(source_id):
+        raise HTTPException(status_code=404, detail="ไม่พบ URL source ที่ระบุ")
     return {"status": "ok"}
 
 

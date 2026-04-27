@@ -4,9 +4,10 @@ Indexing pipeline for the company RAG.
 Steps performed by :func:`build_or_load_vectorstore`:
 
 1. Load every PDF from ``settings.documents_dir``.
-2. Split them into overlapping chunks.
-3. Embed the chunks with OpenAIEmbeddings.
-4. Store / load them as a local FAISS index so we don't re-index
+2. Fetch content from all enabled URL sources.
+3. Split everything into overlapping chunks.
+4. Embed the chunks with OpenAIEmbeddings.
+5. Store / load them as a local FAISS index so we don't re-index
    on every server restart.
 """
 
@@ -58,6 +59,33 @@ def _load_pdfs(documents_dir: Path) -> List[Document]:
     return docs
 
 
+def _load_url_sources() -> List[Document]:
+    """Crawl all enabled URL sources and return their content as Documents."""
+    try:
+        from app.url_sources import list_url_sources, mark_url_indexed  # noqa: PLC0415
+        from app.web_crawler import crawl_url  # noqa: PLC0415
+    except ImportError as exc:
+        logger.warning("URL source modules unavailable: %s", exc)
+        return []
+
+    enabled = [s for s in list_url_sources() if s.enabled]
+    if not enabled:
+        return []
+
+    all_docs: List[Document] = []
+    for source in enabled:
+        logger.info("Crawling URL source '%s': %s (depth=%d)", source.name, source.url, source.crawl_depth)
+        try:
+            crawled = crawl_url(source.url, crawl_depth=source.crawl_depth, source_name=source.name)
+            all_docs.extend(crawled)
+            mark_url_indexed(source.id)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Failed to crawl '%s' (%s): %s", source.name, source.url, exc)
+
+    logger.info("Loaded %d page(s) from %d URL source(s).", len(all_docs), len(enabled))
+    return all_docs
+
+
 def _split_documents(docs: List[Document]) -> List[Document]:
     """Split documents into overlapping chunks suitable for embedding."""
     splitter = RecursiveCharacterTextSplitter(
@@ -99,11 +127,14 @@ def build_vectorstore(force: bool = False) -> FAISS:
             f"Pass force=True to rebuild."
         )
 
-    docs = _load_pdfs(settings.documents_dir)
+    pdf_docs = _load_pdfs(settings.documents_dir)
+    url_docs = _load_url_sources()
+    docs = pdf_docs + url_docs
+
     if not docs:
         raise RuntimeError(
-            "No documents to index. Put PDF files into "
-            f"{settings.documents_dir} and try again."
+            "ไม่พบข้อมูลที่จะ Index — กรุณาอัปโหลดไฟล์ PDF ลงในโฟลเดอร์ "
+            f"{settings.documents_dir} หรือเพิ่ม URL แหล่งข้อมูลในหน้าตั้งค่า"
         )
 
     chunks = _split_documents(docs)

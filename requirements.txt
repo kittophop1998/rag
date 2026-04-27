@@ -27,6 +27,10 @@ pypdf>=5.1.0
 # --- LINE Messaging API ---
 line-bot-sdk>=3.14.2
 
+# --- Web crawling (URL data source) ---
+beautifulsoup4>=4.12    # HTML parsing
+lxml>=5.0               # Fast HTML/XML parser backend for BeautifulSoup
+
 # --- Database connectors (Text-to-SQL / Text-to-Query) ---
 SQLAlchemy>=2.0
 pymysql>=1.1            # MySQL driver
