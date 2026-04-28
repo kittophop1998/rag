@@ -1,0 +1,38 @@
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+.cursor/
+
+# macOS
+.DS_Store
+
+# Git
+.git/
+.gitignore
+
+# Local environment (never bake secrets into the image)
+.env
+
+# RAG data – mounted as volumes at runtime
+faiss_index/
+documents/
+
+# Scripts only needed for local dev
+run.sh
+run.bat
+run.ps1
+
+# Docs & metadata
+README.md

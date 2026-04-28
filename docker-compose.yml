@@ -1,0 +1,41 @@
+services:
+  rag:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: rag-app:latest
+    container_name: rag-app
+    restart: unless-stopped
+
+    ports:
+      - "${PORT:-8000}:8000"
+
+    env_file:
+      - .env
+
+    volumes:
+      # Persistent data – survives container restarts / re-deploys
+      - rag_documents:/app/documents
+      - rag_faiss:/app/faiss_index
+      # JSON data files (users, DB connections, URL sources)
+      - ./users.json:/app/users.json
+      - ./db_connections.json:/app/db_connections.json
+      - ./url_sources.json:/app/url_sources.json
+
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  rag_documents:
+  rag_faiss:
