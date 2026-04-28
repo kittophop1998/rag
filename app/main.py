@@ -257,6 +257,23 @@ async def api_delete_user(user_id: str, session: UserSession = Depends(require_a
     return {"status": "ok"}
 
 
+# ── Database list (all authenticated users) ───────────────────────────────────
+@app.get("/api/databases", tags=["database"])
+async def api_list_databases_public(_: UserSession = Depends(require_auth)):
+    """Return enabled databases for DB-mode selector.
+
+    Available to every authenticated user.  Connection URLs are intentionally
+    omitted so that credentials stored in the URL are not exposed to non-admins.
+    """
+    return {
+        "databases": [
+            {k: v for k, v in c.model_dump().items() if k != "url"}
+            for c in list_connections()
+            if c.enabled
+        ]
+    }
+
+
 # ── Database Settings (admin only) ────────────────────────────────────────────
 @app.get("/api/settings/databases", tags=["settings"])
 async def api_list_databases(_: UserSession = Depends(require_admin)):

@@ -23,6 +23,7 @@ const CFG = {
   LOGOUT_URL:    '/api/auth/logout',
   ME_URL:        '/api/auth/me',
   DB_URL:        '/api/settings/databases',
+  DB_LIST_URL:   '/api/databases',
   DB_QUERY_URL:  '/api/db-query',
   URLS_URL:      '/api/settings/urls',
   USERS_URL:     '/api/users',
@@ -244,6 +245,12 @@ const API = {
   // ── Database settings ───────────────────────────────────────────
   async listDatabases() {
     const r = await fetch(CFG.DB_URL, { headers: Auth.headers() });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  },
+
+  async listDatabasesForUser() {
+    const r = await fetch(CFG.DB_LIST_URL, { headers: Auth.headers() });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return r.json();
   },
@@ -885,7 +892,7 @@ class App {
     const hidden = $('dbSelector');
     list.innerHTML = '<div class="composer-popup-empty">กำลังโหลด...</div>';
     try {
-      const data = await API.listDatabases();
+      const data = await API.listDatabasesForUser();
       this._dbConnections = (data.databases || []).filter(d => d.enabled);
 
       hidden.innerHTML = '<option value="">— เลือกฐานข้อมูล —</option>' +
