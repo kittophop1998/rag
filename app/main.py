@@ -7,7 +7,6 @@ Endpoints:
 * ``GET  /api/chat/stream``     -> Stream answer via SSE.
 * ``POST /api/reindex``         -> Rebuild the FAISS index (admin only).
 * ``POST /api/upload``          -> Upload PDF (admin only).
-* ``POST /webhook``             -> LINE Messaging API webhook.
 * ``GET  /healthz``             -> Liveness probe.
 * ``GET  /api/users``           -> List users (admin only).
 * ``POST /api/users``           -> Create user (admin only).
@@ -48,7 +47,6 @@ from app.url_sources import (
     update_url_source,
 )
 from app.indexer import build_vectorstore
-from app.line_webhook import router as line_router
 from app.rag import rag_engine
 from app.text_to_sql import text_to_query_engine
 from app.user_store import (
@@ -75,7 +73,7 @@ logger = logging.getLogger("rag")
 # ---------------------------------------------------------------------------
 app = FastAPI(
     title="Company RAG",
-    description="ระบบถาม-ตอบเอกสารภายในบริษัท ด้วย FastAPI + LangChain + OpenAI + FAISS + LINE",
+    description="ระบบถาม-ตอบเอกสารภายในบริษัท ด้วย FastAPI + LangChain + OpenAI + FAISS",
     version="1.0.0",
 )
 
@@ -89,8 +87,6 @@ app.add_middleware(
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-
-app.include_router(line_router)
 
 
 # ---------------------------------------------------------------------------

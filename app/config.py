@@ -22,10 +22,6 @@ class Settings(BaseSettings):
     chunk_overlap: int = 150
     top_k: int = 3
 
-    # --- LINE ---
-    line_channel_access_token: str = ""
-    line_channel_secret: str = ""
-
     # --- Auth ---
     admin_username: str = "admin"
     admin_password: str = "admin1234"

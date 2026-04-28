@@ -1325,23 +1325,11 @@ class App {
       this._hideUrlForm();
     };
 
-    $('settingsBtn').addEventListener('click', () => {
-      $('webhookUrl').textContent = `${window.location.origin}/webhook`;
-      open();
-    });
+    $('settingsBtn').addEventListener('click', () => open());
 
     backdrop.addEventListener('click', close);
     closeBtn.addEventListener('click', close);
     document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
-
-    $('copyWebhookBtn').addEventListener('click', () => {
-      const url = $('webhookUrl').textContent;
-      navigator.clipboard.writeText(url).then(() => {
-        toast('คัดลอก Webhook URL แล้ว', 'success');
-      }).catch(() => {
-        toast('คัดลอกไม่สำเร็จ', 'error');
-      });
-    });
 
     // Tab switching
     document.querySelectorAll('.settings-tab').forEach(tab => {
