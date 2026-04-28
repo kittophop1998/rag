@@ -3,7 +3,7 @@ FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
-# Install build deps for packages that need compilation (psycopg2-binary, lxml, faiss-cpu)
+# Install build deps for packages that need compilation (psycopg2-binary, lxml)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         gcc \
         libpq-dev \
@@ -31,7 +31,7 @@ COPY app/      ./app/
 COPY static/   ./static/
 
 # Persistent data directories (mounted as volumes in production)
-RUN mkdir -p documents faiss_index
+RUN mkdir -p documents
 
 # Non-root user for security
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app

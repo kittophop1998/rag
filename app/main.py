@@ -2,16 +2,21 @@
 FastAPI entry point.
 
 Endpoints:
-* ``GET  /``                    -> Chat web UI (static HTML).
-* ``POST /api/chat``            -> Ask a question, return JSON answer + sources.
-* ``GET  /api/chat/stream``     -> Stream answer via SSE.
-* ``POST /api/reindex``         -> Rebuild the FAISS index (admin only).
-* ``POST /api/upload``          -> Upload PDF (admin only).
-* ``GET  /healthz``             -> Liveness probe.
-* ``GET  /api/users``           -> List users (admin only).
-* ``POST /api/users``           -> Create user (admin only).
-* ``PATCH /api/users/{id}``     -> Update user (admin only).
-* ``DELETE /api/users/{id}``    -> Delete user (admin only).
+* ``GET  /``                                    -> Chat web UI (static HTML).
+* ``POST /api/chat``                            -> Ask a question, return JSON answer + sources.
+* ``GET  /api/chat/stream``                     -> Stream answer via SSE.
+* ``POST /api/reindex``                         -> Rebuild the ChromaDB RAG index (admin only).
+* ``POST /api/upload``                          -> Upload PDF (admin only).
+* ``GET  /healthz``                             -> Liveness probe.
+* ``POST /api/db-query``                        -> NL → SQL via Vanna.ai + LLM fallback.
+* ``POST /api/vanna/train``                     -> Add Vanna training data (admin only).
+* ``GET  /api/vanna/training-data``             -> List Vanna training entries (admin only).
+* ``DELETE /api/vanna/training-data/{id}``      -> Remove Vanna training entry (admin only).
+* ``POST /api/vanna/train-connection/{conn_id}``-> Train Vanna on a DB schema (admin only).
+* ``GET  /api/users``                           -> List users (admin only).
+* ``POST /api/users``                           -> Create user (admin only).
+* ``PATCH /api/users/{id}``                     -> Update user (admin only).
+* ``DELETE /api/users/{id}``                    -> Delete user (admin only).
 """
 
 from __future__ import annotations
@@ -73,8 +78,8 @@ logger = logging.getLogger("rag")
 # ---------------------------------------------------------------------------
 app = FastAPI(
     title="Company RAG",
-    description="ระบบถาม-ตอบเอกสารภายในบริษัท ด้วย FastAPI + LangChain + OpenAI + FAISS",
-    version="1.0.0",
+    description="ระบบถาม-ตอบเอกสารภายในบริษัท ด้วย FastAPI + LangChain + OpenAI + ChromaDB + Vanna.ai",
+    version="2.0.0",
 )
 
 app.add_middleware(
@@ -115,6 +120,14 @@ class ChatResponse(BaseModel):
 class DBQueryRequest(BaseModel):
     question: str = Field(..., min_length=1, description="Natural-language question about the database")
     db_connection_id: str = Field(..., description="ID of the DatabaseConnection to query")
+
+
+class VannaTrainRequest(BaseModel):
+    type: str = Field(..., description="Training type: 'sql', 'ddl', or 'documentation'")
+    question: str = Field(default="", description="Natural-language question (for type='sql')")
+    sql: str = Field(default="", description="SQL query paired with the question (for type='sql')")
+    ddl: str = Field(default="", description="DDL CREATE TABLE statement (for type='ddl')")
+    documentation: str = Field(default="", description="Business context text (for type='documentation')")
 
 
 # ---------------------------------------------------------------------------
@@ -338,6 +351,7 @@ async def api_db_query(
             question=req.question,
             db_type=conn.db_type,
             db_url=conn.url,
+            conn_id=req.db_connection_id,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -361,7 +375,7 @@ async def api_chat(
         raise HTTPException(
             status_code=503,
             detail=(
-                "ยังไม่มี FAISS index — กรุณาอัปโหลดไฟล์ PDF ลงในโฟลเดอร์ "
+                "ยังไม่มี ChromaDB index — กรุณาอัปโหลดไฟล์ PDF ลงในโฟลเดอร์ "
                 f"{settings.documents_dir} แล้วเรียก POST /api/reindex"
             ),
         ) from exc
@@ -396,8 +410,7 @@ async def api_chat_stream(
 async def api_documents(_: UserSession = Depends(require_auth)):
     """List PDF documents in the documents directory with their index status."""
     docs_dir = settings.documents_dir
-    index_dir = settings.faiss_index_dir
-    indexed = index_dir.exists() and any(index_dir.iterdir())
+    indexed = (settings.chroma_rag_dir / "chroma.sqlite3").exists()
 
     if not docs_dir.exists():
         return {"documents": [], "indexed": indexed, "count": 0}
@@ -441,7 +454,7 @@ async def api_upload(
 
 @app.post("/api/reindex")
 async def api_reindex(_: UserSession = Depends(require_admin)):
-    """Force a rebuild of the FAISS index from ./documents (admin only)."""
+    """Force a rebuild of the ChromaDB RAG index from ./documents (admin only)."""
     try:
         build_vectorstore(force=True)
         rag_engine.reload()
@@ -450,14 +463,127 @@ async def api_reindex(_: UserSession = Depends(require_admin)):
     return {"status": "ok", "message": "Re-indexed successfully."}
 
 
+# ── Vanna.ai — Text-to-SQL training (admin only) ──────────────────────────────
+@app.post("/api/vanna/train", tags=["vanna"])
+async def api_vanna_train(
+    req: VannaTrainRequest,
+    _: UserSession = Depends(require_admin),
+):
+    """Add training data to Vanna.ai's ChromaDB vector store (admin only).
+
+    - type='sql'           → requires question + sql
+    - type='ddl'           → requires ddl
+    - type='documentation' → requires documentation
+    """
+    from app.vanna_engine import vanna_engine  # noqa: PLC0415
+
+    try:
+        if req.type == "sql":
+            if not req.question.strip() or not req.sql.strip():
+                raise HTTPException(status_code=400, detail="'question' และ 'sql' จำเป็นต้องระบุ")
+            training_id = vanna_engine.add_sql_example(req.question.strip(), req.sql.strip())
+        elif req.type == "ddl":
+            if not req.ddl.strip():
+                raise HTTPException(status_code=400, detail="'ddl' จำเป็นต้องระบุ")
+            training_id = vanna_engine.add_ddl(req.ddl.strip())
+        elif req.type == "documentation":
+            if not req.documentation.strip():
+                raise HTTPException(status_code=400, detail="'documentation' จำเป็นต้องระบุ")
+            training_id = vanna_engine.add_documentation(req.documentation.strip())
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="'type' ต้องเป็นหนึ่งใน: 'sql', 'ddl', 'documentation'",
+            )
+        return {"status": "ok", "training_id": training_id, "type": req.type}
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("vanna/train failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"การ train ล้มเหลว: {exc}") from exc
+
+
+@app.get("/api/vanna/training-data", tags=["vanna"])
+async def api_vanna_training_data(_: UserSession = Depends(require_admin)):
+    """List all Vanna.ai training entries stored in ChromaDB (admin only)."""
+    from app.vanna_engine import vanna_engine  # noqa: PLC0415
+
+    try:
+        data = vanna_engine.get_training_data()
+        return {
+            "training_data": data,
+            "count": len(data),
+            "trained_connections": vanna_engine.get_trained_connections(),
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("vanna/training-data failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"ดึงข้อมูล training ไม่สำเร็จ: {exc}") from exc
+
+
+@app.delete("/api/vanna/training-data/{training_id}", tags=["vanna"])
+async def api_vanna_delete_training(
+    training_id: str,
+    _: UserSession = Depends(require_admin),
+):
+    """Remove a single Vanna.ai training entry by its ID (admin only)."""
+    from app.vanna_engine import vanna_engine  # noqa: PLC0415
+
+    try:
+        ok = vanna_engine.remove_training_data(training_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="ไม่พบข้อมูล training ที่ระบุ")
+        return {"status": "ok"}
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"ลบข้อมูล training ไม่สำเร็จ: {exc}") from exc
+
+
+@app.post("/api/vanna/train-connection/{conn_id}", tags=["vanna"])
+async def api_vanna_train_connection(
+    conn_id: str,
+    _: UserSession = Depends(require_admin),
+):
+    """Manually trigger Vanna.ai schema training for a saved DB connection (admin only).
+
+    This extracts DDL and schema description from the live database and stores
+    them in Vanna's ChromaDB.  The same training happens automatically on first
+    use of a connection via /api/db-query.
+    """
+    from app.vanna_engine import vanna_engine  # noqa: PLC0415
+    from app.db_inspector import get_schema_description  # noqa: PLC0415
+
+    conn = get_connection(conn_id)
+    if not conn:
+        raise HTTPException(status_code=404, detail="ไม่พบ Database connection ที่ระบุ")
+    if not conn.enabled:
+        raise HTTPException(status_code=400, detail="Database connection นี้ถูกปิดใช้งาน")
+
+    try:
+        schema = get_schema_description(conn.db_type.lower(), conn.url)
+        count = vanna_engine.train_on_connection(
+            conn_id=conn_id,
+            db_type=conn.db_type,
+            db_url=conn.url,
+            schema_description=schema,
+        )
+        return {
+            "status": "ok",
+            "connection_name": conn.name,
+            "items_trained": count,
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("vanna/train-connection failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"การ train ล้มเหลว: {exc}") from exc
+
+
 # ---------------------------------------------------------------------------
 # Lifecycle
 # ---------------------------------------------------------------------------
 @app.on_event("startup")
 async def on_startup() -> None:
-    logger.info("Starting Company RAG service ...")
+    logger.info("Starting Company RAG service (ChromaDB + Vanna.ai) ...")
 
-    # Ensure a default admin account always exists
     bootstrap_default_admin(settings.admin_username, settings.admin_password)
     logger.info(
         "Default admin bootstrapped (username: %s) — update via User Management.",
@@ -469,9 +595,11 @@ async def on_startup() -> None:
 
     try:
         rag_engine.vectorstore  # noqa: B018 – triggers lazy init
-        logger.info("FAISS index loaded successfully.")
+        logger.info(
+            "ChromaDB RAG index loaded (path: %s).", settings.chroma_rag_dir
+        )
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Vector store not ready: %s", exc)
+        logger.warning("Vector store not ready (run Rebuild Index): %s", exc)
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -2,9 +2,10 @@
 
 Flow:
     1. Read DB schema  (db_inspector)
-    2. LLM generates a query  (SQL or MongoDB JSON)
-    3. Execute the query  (db_query)
-    4. LLM summarises the result in Thai
+    2. Generate query — Vanna.ai RAG first, LLM direct fallback
+    3. Security-validate the query
+    4. Execute the query  (db_query)
+    5. LLM summarises the result in Thai
 
 Supported backends: MySQL, PostgreSQL, MSSQL, MongoDB
 """
@@ -24,15 +25,13 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
 from app.config import settings
+from app.constants import MAX_SCHEMA_CHARS, MAX_RESULT_PREVIEW_ROWS
 from app.db_inspector import get_schema_description
 from app.db_query import execute_query
 
 logger = logging.getLogger(__name__)
 
-# Maximum characters of schema text forwarded to the LLM.
-# ~4 chars ≈ 1 token, so 20 000 chars ≈ 5 000 tokens — leaves plenty of
-# headroom under the default 30 000 TPM limit.
-_MAX_SCHEMA_CHARS = 20_000
+_MAX_SCHEMA_CHARS = MAX_SCHEMA_CHARS  # re-export as module-private alias
 
 # ---------------------------------------------------------------------------
 # Prompts
@@ -123,15 +122,22 @@ class TextToQueryEngine:
             )
         return self._llm
 
-    def ask(self, question: str, db_type: str, db_url: str) -> dict[str, Any]:
+    def ask(
+        self,
+        question: str,
+        db_type: str,
+        db_url: str,
+        conn_id: str = "",
+    ) -> dict[str, Any]:
         """Run the full pipeline and return a result dict.
 
         Keys in the returned dict:
-            answer    – Thai-language natural-language answer
-            query     – The generated SQL / MongoDB JSON string
-            db_type   – The DB type used
-            row_count – Number of rows retrieved
-            rows      – List of row dicts (max 200)
+            answer       – Thai-language natural-language answer
+            query        – The generated SQL / MongoDB JSON string
+            db_type      – The DB type used
+            row_count    – Number of rows retrieved
+            rows         – List of row dicts (max 200)
+            using_vanna  – True when Vanna.ai generated the SQL
         """
         db_type_l = db_type.lower()
 
@@ -145,22 +151,31 @@ class TextToQueryEngine:
             schema = schema[:_MAX_SCHEMA_CHARS] + "\n...(schema ถูกตัดทอนเนื่องจากมีขนาดใหญ่เกินไป)"
             logger.warning("[text_to_sql] schema truncated to %d chars", _MAX_SCHEMA_CHARS)
 
-        # ── 2. Generate query ─────────────────────────────────────────────
-        try:
-            if db_type_l == "mongodb":
-                chain = _MONGO_PROMPT | self.llm | StrOutputParser()
-                raw_query = chain.invoke({"schema": schema, "question": question}).strip()
-            else:
-                dialect = _DIALECT_MAP.get(db_type_l, "SQL")
-                chain = _SQL_PROMPT | self.llm | StrOutputParser()
-                raw_query = chain.invoke(
-                    {"dialect": dialect, "schema": schema, "question": question}
-                ).strip()
-            raw_query = _strip_fence(raw_query)
-        except Exception as exc:  # noqa: BLE001
-            raise RuntimeError(f"OpenAI สร้าง query ไม่ได้: {exc}") from exc
+        # ── 2. Generate query — try Vanna first, fall back to direct LLM ──
+        raw_query: str | None = None
+        using_vanna = False
 
-        logger.info("[text_to_sql] generated %s query: %.120s", db_type, raw_query)
+        if conn_id and db_type_l != "mongodb":
+            raw_query = _try_vanna(question, conn_id, db_type_l, db_url, schema)
+            if raw_query:
+                using_vanna = True
+                logger.info("[text_to_sql] Vanna generated %s query: %.120s", db_type, raw_query)
+
+        if raw_query is None:
+            try:
+                if db_type_l == "mongodb":
+                    chain = _MONGO_PROMPT | self.llm | StrOutputParser()
+                    raw_query = chain.invoke({"schema": schema, "question": question}).strip()
+                else:
+                    dialect = _DIALECT_MAP.get(db_type_l, "SQL")
+                    chain = _SQL_PROMPT | self.llm | StrOutputParser()
+                    raw_query = chain.invoke(
+                        {"dialect": dialect, "schema": schema, "question": question}
+                    ).strip()
+                raw_query = _strip_fence(raw_query)
+            except Exception as exc:  # noqa: BLE001
+                raise RuntimeError(f"OpenAI สร้าง query ไม่ได้: {exc}") from exc
+            logger.info("[text_to_sql] LLM generated %s query: %.120s", db_type, raw_query)
 
         # ── 3. Security validation (Layer 2) ──────────────────────────────
         try:
@@ -179,7 +194,7 @@ class TextToQueryEngine:
             raise RuntimeError(f"รัน query ไม่สำเร็จ: {exc}") from exc
 
         # ── 5. Summarise ──────────────────────────────────────────────────
-        result_preview = json.dumps(rows[:20], ensure_ascii=False, default=str)
+        result_preview = json.dumps(rows[:MAX_RESULT_PREVIEW_ROWS], ensure_ascii=False, default=str)
         try:
             answer_chain = _ANSWER_PROMPT | self.llm | StrOutputParser()
             answer = answer_chain.invoke(
@@ -200,6 +215,7 @@ class TextToQueryEngine:
             "db_type": db_type,
             "row_count": len(rows),
             "rows": rows,
+            "using_vanna": using_vanna,
         }
 
 
@@ -209,6 +225,35 @@ def _strip_fence(text: str) -> str:
     text = re.sub(r"^```[\w]*\n?", "", text)
     text = re.sub(r"\n?```$", "", text)
     return text.strip()
+
+
+def _try_vanna(
+    question: str,
+    conn_id: str,
+    db_type: str,
+    db_url: str,
+    schema: str,
+) -> str | None:
+    """Attempt SQL generation via Vanna.ai RAG.
+
+    Auto-trains on the connection's schema on first use.
+    Returns the SQL string on success, or None so the caller can fall back
+    to the direct LLM approach.
+    """
+    try:
+        from app.vanna_engine import vanna_engine  # noqa: PLC0415
+
+        if not vanna_engine.is_trained(conn_id):
+            logger.info("[vanna] Auto-training on connection '%s' ...", conn_id)
+            vanna_engine.train_on_connection(conn_id, db_type, db_url, schema)
+
+        sql = vanna_engine.generate_sql(question)
+        if sql:
+            return _strip_fence(sql)
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[vanna] Unavailable — falling back to direct LLM: %s", exc)
+        return None
 
 
 # ---------------------------------------------------------------------------

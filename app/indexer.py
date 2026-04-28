@@ -1,5 +1,5 @@
 """
-Indexing pipeline for the company RAG.
+Indexing pipeline for the company RAG — backed by ChromaDB.
 
 Steps performed by :func:`build_or_load_vectorstore`:
 
@@ -7,23 +7,28 @@ Steps performed by :func:`build_or_load_vectorstore`:
 2. Fetch content from all enabled URL sources.
 3. Split everything into overlapping chunks.
 4. Embed the chunks with OpenAIEmbeddings.
-5. Store / load them as a local FAISS index so we don't re-index
+5. Persist the vectors in a local ChromaDB collection so we don't re-embed
    on every server restart.
+
+ChromaDB persist path: ``settings.chroma_rag_dir``  (= ``chroma_base_dir/rag/``)
+Collection name      : ``constants.CHROMA_RAG_COLLECTION``
 """
 
 from __future__ import annotations
 
 import logging
+import shutil
 from pathlib import Path
 from typing import List
 
+from langchain_chroma import Chroma
 from langchain_community.document_loaders import PyPDFLoader
-from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.config import settings
+from app.constants import CHROMA_RAG_COLLECTION
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +40,7 @@ def _load_pdfs(documents_dir: Path) -> List[Document]:
     """Load every PDF in *documents_dir* (recursively) into LangChain Documents."""
     if not documents_dir.exists():
         documents_dir.mkdir(parents=True, exist_ok=True)
-        logger.warning("Documents directory %s did not exist, created empty one.", documents_dir)
+        logger.warning("Documents directory %s did not exist — created empty one.", documents_dir)
         return []
 
     pdf_paths = sorted(documents_dir.rglob("*.pdf"))
@@ -74,7 +79,10 @@ def _load_url_sources() -> List[Document]:
 
     all_docs: List[Document] = []
     for source in enabled:
-        logger.info("Crawling URL source '%s': %s (depth=%d)", source.name, source.url, source.crawl_depth)
+        logger.info(
+            "Crawling URL source '%s': %s (depth=%d)",
+            source.name, source.url, source.crawl_depth,
+        )
         try:
             crawled = crawl_url(source.url, crawl_depth=source.crawl_depth, source_name=source.name)
             all_docs.extend(crawled)
@@ -99,7 +107,7 @@ def _split_documents(docs: List[Document]) -> List[Document]:
 
 
 # ---------------------------------------------------------------------------
-# Public API
+# Internal helpers
 # ---------------------------------------------------------------------------
 def _embeddings() -> OpenAIEmbeddings:
     if not settings.openai_api_key:
@@ -112,21 +120,32 @@ def _embeddings() -> OpenAIEmbeddings:
     )
 
 
-def build_vectorstore(force: bool = False) -> FAISS:
-    """
-    Build a FAISS vector store from the PDFs in ``documents_dir`` and persist
-    it to ``faiss_index_dir``.
+def _chroma_is_initialised(persist_dir: Path) -> bool:
+    """Return True when ChromaDB has been written to *persist_dir*."""
+    return (persist_dir / "chroma.sqlite3").exists()
 
-    If *force* is False and a FAISS index already exists, this raises
-    :class:`FileExistsError` to make the caller decide.
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+def build_vectorstore(force: bool = False) -> Chroma:
+    """Build a ChromaDB vector store from source documents and persist it.
+
+    * ``force=False`` → raises :class:`FileExistsError` if an index already exists.
+    * ``force=True``  → wipes the existing collection and rebuilds from scratch.
+
+    Persist path : ``settings.chroma_rag_dir``  (``chroma_base_dir/rag/``)
+    Collection   : ``CHROMA_RAG_COLLECTION``
     """
-    index_dir = settings.faiss_index_dir
-    if index_dir.exists() and any(index_dir.iterdir()) and not force:
+    persist_dir = settings.chroma_rag_dir
+
+    if _chroma_is_initialised(persist_dir) and not force:
         raise FileExistsError(
-            f"A FAISS index already exists at {index_dir}. "
-            f"Pass force=True to rebuild."
+            f"ChromaDB index already exists at {persist_dir}. "
+            "Pass force=True to rebuild."
         )
 
+    # Load source material
     pdf_docs = _load_pdfs(settings.documents_dir)
     url_docs = _load_url_sources()
     docs = pdf_docs + url_docs
@@ -145,42 +164,55 @@ def build_vectorstore(force: bool = False) -> FAISS:
             "กรุณาแปลงไฟล์ให้เป็น PDF ที่มีข้อความ (searchable PDF) ก่อนอัปโหลด"
         )
 
-    vs = FAISS.from_documents(chunks, _embeddings())
+    # Wipe old index before rebuilding
+    if force and persist_dir.exists():
+        shutil.rmtree(persist_dir)
+        logger.info("Removed old ChromaDB RAG index at %s", persist_dir)
 
-    index_dir.mkdir(parents=True, exist_ok=True)
-    vs.save_local(str(index_dir))
-    logger.info("FAISS index saved to %s", index_dir)
+    persist_dir.mkdir(parents=True, exist_ok=True)
+
+    vs = Chroma.from_documents(
+        chunks,
+        _embeddings(),
+        persist_directory=str(persist_dir),
+        collection_name=CHROMA_RAG_COLLECTION,
+    )
+    logger.info(
+        "ChromaDB RAG index built at %s — collection '%s', %d chunks",
+        persist_dir, CHROMA_RAG_COLLECTION, len(chunks),
+    )
     return vs
 
 
-def load_vectorstore() -> FAISS:
-    """Load a previously persisted FAISS index from disk."""
-    index_dir = settings.faiss_index_dir
-    if not index_dir.exists() or not any(index_dir.iterdir()):
+def load_vectorstore() -> Chroma:
+    """Load the persisted ChromaDB collection from disk.
+
+    Raises :class:`FileNotFoundError` if no index has been built yet.
+    """
+    persist_dir = settings.chroma_rag_dir
+
+    if not _chroma_is_initialised(persist_dir):
         raise FileNotFoundError(
-            f"No FAISS index found in {index_dir}. Build it first via "
-            f"build_vectorstore() or POST /reindex."
+            f"ไม่พบ ChromaDB index ที่ {persist_dir} — กรุณากด Rebuild Index ก่อนครับ"
         )
 
-    logger.info("Loading FAISS index from %s", index_dir)
-    return FAISS.load_local(
-        str(index_dir),
-        _embeddings(),
-        allow_dangerous_deserialization=True,  # we trust our own pickle
+    logger.info("Loading ChromaDB RAG index from %s", persist_dir)
+    return Chroma(
+        persist_directory=str(persist_dir),
+        embedding_function=_embeddings(),
+        collection_name=CHROMA_RAG_COLLECTION,
     )
 
 
-def build_or_load_vectorstore() -> FAISS:
-    """
-    Convenience helper used at server start-up:
+def build_or_load_vectorstore() -> Chroma:
+    """Convenience helper used at server start-up.
 
-    * If an index already exists on disk -> load it.
-    * Otherwise build one from the documents folder.
-    * If there are no documents either, raise so the caller can keep running
-      the server without a vector store.
+    * Existing index found → load it.
+    * No index → build from documents folder.
+    * No documents either → raise so the server keeps running without a store.
     """
     try:
         return load_vectorstore()
     except FileNotFoundError:
-        logger.info("No persisted FAISS index found, building a new one ...")
+        logger.info("No ChromaDB RAG index found — building a new one ...")
         return build_vectorstore(force=True)

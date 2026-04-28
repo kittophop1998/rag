@@ -16,7 +16,7 @@ services:
     volumes:
       # Persistent data – survives container restarts / re-deploys
       - rag_documents:/app/documents
-      - rag_faiss:/app/faiss_index
+      - rag_chroma:/app/chroma      # shared ChromaDB root (rag/ + vanna/ sub-folders)
       # JSON data files (users, DB connections, URL sources)
       - ./users.json:/app/users.json
       - ./db_connections.json:/app/db_connections.json
@@ -38,4 +38,4 @@ services:
 
 volumes:
   rag_documents:
-  rag_faiss:
+  rag_chroma:

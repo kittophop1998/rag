@@ -4,9 +4,11 @@ The RAG chain.
 The chain:
 
 * receives a user question,
-* retrieves the top-K most relevant snippets from the FAISS vector store,
+* retrieves the top-K most relevant snippets from the ChromaDB vector store,
 * prompts the LLM to answer **only** using that context,
 * returns ``"ไม่พบข้อมูลในเอกสารครับ"`` when the answer is not in the context.
+
+Vector store: ChromaDB  (``chroma_base_dir/rag/``, collection ``rag_documents``)
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ import logging
 from dataclasses import dataclass
 from typing import AsyncGenerator, List, Optional
 
-from langchain_community.vectorstores import FAISS
+from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
@@ -82,7 +84,7 @@ class RAGEngine:
     """Encapsulates the vector store + LLM + prompt as a single callable."""
 
     def __init__(self) -> None:
-        self._vectorstore: Optional[FAISS] = None
+        self._vectorstore: Optional[Chroma] = None
         self._llm: Optional[ChatOpenAI] = None
         self._prompt = ChatPromptTemplate.from_messages(
             [
@@ -93,7 +95,7 @@ class RAGEngine:
 
     # -- lazy initialisation -------------------------------------------------
     @property
-    def vectorstore(self) -> FAISS:
+    def vectorstore(self) -> Chroma:
         if self._vectorstore is None:
             self._vectorstore = build_or_load_vectorstore()
         return self._vectorstore
@@ -111,7 +113,7 @@ class RAGEngine:
         return self._llm
 
     def reload(self) -> None:
-        """Force the next call to re-load the FAISS index from disk."""
+        """Force the next call to re-load the Chroma vector store from disk."""
         self._vectorstore = None
 
     # -- streaming entry point -----------------------------------------------
@@ -165,7 +167,7 @@ class RAGEngine:
             yield "data: [DONE]\n\n"
 
         except FileNotFoundError:
-            yield f'data: {json.dumps({"type": "error", "content": "ยังไม่มี FAISS index — กรุณากด Rebuild Index ก่อนครับ"})}\n\n'
+            yield f'data: {json.dumps({"type": "error", "content": "ยังไม่มี ChromaDB index — กรุณากด Rebuild Index ก่อนครับ"})}\n\n'
         except RuntimeError as exc:
             yield f'data: {json.dumps({"type": "error", "content": str(exc)})}\n\n'
         except Exception as exc:  # noqa: BLE001
