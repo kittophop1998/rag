@@ -16,6 +16,9 @@ import logging
 import re
 from typing import Any
 
+import sqlparse
+import sqlparse.tokens as T
+
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
@@ -35,41 +38,42 @@ _MAX_SCHEMA_CHARS = 20_000
 # Prompts
 # ---------------------------------------------------------------------------
 _SQL_PROMPT = ChatPromptTemplate.from_messages([
-    ("system", """คุณคือ SQL expert เชี่ยวชาญ {dialect}
-สร้าง SQL query จากคำถามของผู้ใช้ โดยใช้ Schema ด้านล่างเท่านั้น
+    ("system", """You are a read-only SQL expert specialised in {dialect}.
+Your ONLY job is to generate SELECT queries. You are STRICTLY FORBIDDEN from generating any other statement.
+
+ABSOLUTE RULES — violation will cause the query to be rejected:
+- ONLY generate SELECT statements. NEVER generate DROP, DELETE, INSERT, UPDATE, ALTER, TRUNCATE, CREATE, REPLACE, or MERGE.
+- If the user asks to delete, drop, modify, or change data in any way, respond ONLY with: SELECT 'คำขอนี้ไม่ได้รับอนุญาต — ระบบอนุญาตเฉพาะการสืบค้นข้อมูลเท่านั้น' AS message
+- Output raw SQL only — no explanation, no markdown code fences.
+- Use ONLY column names that appear in the Schema below. Never guess or invent column names.
+- Add LIMIT 200 if the question does not specify a result count.
 
 Schema:
 {schema}
 
-กฎเข้มงวด — ต้องปฏิบัติตามทุกข้อ:
-- ใช้เฉพาะ SELECT statement เท่านั้น ห้าม INSERT / UPDATE / DELETE / DROP ทุกกรณี
-- ตอบเป็น SQL query ล้วนๆ ไม่มีคำอธิบาย ไม่มี markdown code fence
-- ห้ามสมมติหรือเดาชื่อ column เด็ดขาด ใช้ได้เฉพาะชื่อ column ที่ปรากฏใน Schema ด้านบนเท่านั้น
+กฎเพิ่มเติม:
 - ก่อนใช้ column ใด ให้ตรวจสอบให้มั่นใจว่า column นั้นมีอยู่จริงใน Schema
-- ถ้าต้องการ column ที่แทนรหัสสินค้า / ชื่อสินค้า ฯลฯ ให้ดูจาก Schema ก่อน อย่าเดาชื่อเอง
-- หา column ที่ต้องการใน Schema ไม่เจอ ให้ใช้เฉพาะ column ที่มั่นใจว่ามีจริง เช่น id, name
-- เพิ่ม LIMIT 200 ถ้าคำถามไม่ได้ระบุจำนวนผลลัพธ์"""),
+- หา column ที่ต้องการใน Schema ไม่เจอ ให้ใช้เฉพาะ column ที่มั่นใจว่ามีจริง เช่น id, name"""),
     ("human", "{question}"),
 ])
 
 _MONGO_PROMPT = ChatPromptTemplate.from_messages([
-    ("system", """คุณคือ MongoDB expert
-สร้าง MongoDB query จากคำถามของผู้ใช้ โดยใช้ Schema ด้านล่างเท่านั้น
+    ("system", """You are a read-only MongoDB expert.
+Your ONLY job is to generate find/aggregation queries for reading data.
 
-Schema (collections & fields):
-{schema}
-
-กฎเข้มงวด — ต้องปฏิบัติตามทุกข้อ:
-- ตอบเป็น JSON object เท่านั้น ไม่มีคำอธิบาย ไม่มี markdown code fence
-- รูปแบบที่ยอมรับ:
+ABSOLUTE RULES — violation will cause the query to be rejected:
+- NEVER generate queries that write, modify, or delete data.
+- FORBIDDEN operations: drop, remove, deleteOne, deleteMany, updateOne, updateMany, findOneAndDelete, findOneAndUpdate, findOneAndReplace, insertOne, insertMany, bulkWrite, $out, $merge.
+- If the user asks to delete, drop, or modify data, respond ONLY with: {{"error": "คำขอนี้ไม่ได้รับอนุญาต — ระบบอนุญาตเฉพาะการสืบค้นข้อมูลเท่านั้น"}}
+- Output raw JSON only — no explanation, no markdown code fences.
+- Accepted formats:
     Simple find  → {{"collection":"name","filter":{{...}},"sort":{{...}},"projection":{{...}}}}
     Aggregation  → {{"collection":"name","pipeline":[{{...}},...] }}
-- ห้ามสมมติหรือเดาชื่อ field เด็ดขาด ใช้ได้เฉพาะชื่อ field ที่ปรากฏใน Schema ด้านบนเท่านั้น
-- ก่อนใช้ field ใด ให้ตรวจสอบให้มั่นใจว่า field นั้นมีอยู่จริงใน Schema
-- ถ้าต้องการ field ที่แทนรหัสสินค้า / ชื่อสินค้า ฯลฯ ให้ดูจาก Schema ก่อน อย่าเดาชื่อเอง
-- หา field ที่ต้องการใน Schema ไม่เจอ ให้ใช้เฉพาะ field ที่มั่นใจว่ามีจริง เช่น _id, name
-- ห้ามใช้ $out หรือ $merge ใน pipeline
-- ใส่ {{"$limit": 200}} ใน pipeline ถ้าไม่มีการระบุจำนวน"""),
+- Use ONLY field names that appear in the Schema below. Never guess or invent field names.
+- Add {{"$limit": 200}} in the pipeline if the question does not specify a result count.
+
+Schema (collections & fields):
+{schema}"""),
     ("human", "{question}"),
 ])
 
@@ -158,13 +162,23 @@ class TextToQueryEngine:
 
         logger.info("[text_to_sql] generated %s query: %.120s", db_type, raw_query)
 
-        # ── 3. Execute ────────────────────────────────────────────────────
+        # ── 3. Security validation (Layer 2) ──────────────────────────────
+        try:
+            if db_type_l == "mongodb":
+                parsed_mongo = json.loads(raw_query)
+                _validate_mongo_query(parsed_mongo)
+            else:
+                _validate_sql_query(raw_query)
+        except (ValueError, json.JSONDecodeError) as exc:
+            raise RuntimeError(f"คำขอถูกปฏิเสธโดยระบบความปลอดภัย: {exc}") from exc
+
+        # ── 4. Execute ────────────────────────────────────────────────────
         try:
             rows = execute_query(db_type_l, db_url, raw_query)
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(f"รัน query ไม่สำเร็จ: {exc}") from exc
 
-        # ── 4. Summarise ──────────────────────────────────────────────────
+        # ── 5. Summarise ──────────────────────────────────────────────────
         result_preview = json.dumps(rows[:20], ensure_ascii=False, default=str)
         try:
             answer_chain = _ANSWER_PROMPT | self.llm | StrOutputParser()
@@ -195,6 +209,71 @@ def _strip_fence(text: str) -> str:
     text = re.sub(r"^```[\w]*\n?", "", text)
     text = re.sub(r"\n?```$", "", text)
     return text.strip()
+
+
+# ---------------------------------------------------------------------------
+# Security validators (Layer 2 — after LLM generation, before execution)
+# ---------------------------------------------------------------------------
+
+_FORBIDDEN_SQL_TYPES = frozenset({
+    "DROP", "DELETE", "INSERT", "UPDATE", "CREATE",
+    "ALTER", "TRUNCATE", "REPLACE", "MERGE", "RENAME",
+    "CALL", "EXEC", "EXECUTE",
+})
+
+_FORBIDDEN_MONGO_OPS = frozenset({
+    "drop", "remove",
+    "deleteOne", "deleteMany",
+    "updateOne", "updateMany", "replaceOne",
+    "findOneAndDelete", "findOneAndUpdate", "findOneAndReplace",
+    "insertOne", "insertMany", "bulkWrite",
+    "$out", "$merge",
+})
+
+
+def _validate_sql_query(sql: str) -> None:
+    """Raise ValueError if *sql* is not a pure SELECT query.
+
+    Uses sqlparse to parse the statement type, then falls back to a keyword
+    scan so that obfuscated or multi-statement payloads are still caught.
+    """
+    statements = sqlparse.parse(sql.strip())
+    if not statements or not any(str(s).strip() for s in statements):
+        raise ValueError("ไม่พบ SQL query ในผลลัพธ์")
+
+    for stmt in statements:
+        if not str(stmt).strip():
+            continue
+
+        stmt_type = (stmt.get_type() or "").upper()
+
+        if stmt_type and stmt_type != "SELECT":
+            raise ValueError(
+                f"คำสั่ง {stmt_type} ไม่ได้รับอนุญาต — อนุญาตเฉพาะ SELECT เท่านั้น"
+            )
+
+        # Fallback: scan every DML/DDL token regardless of get_type()
+        for token in stmt.flatten():
+            if token.ttype in (T.Keyword.DML, T.Keyword.DDL):
+                kw = token.normalized.upper()
+                if kw in _FORBIDDEN_SQL_TYPES:
+                    raise ValueError(
+                        f"คำสั่ง {kw} ไม่ได้รับอนุญาต — อนุญาตเฉพาะ SELECT เท่านั้น"
+                    )
+
+    logger.debug("[security] SQL validation passed")
+
+
+def _validate_mongo_query(query: dict) -> None:
+    """Raise ValueError if the MongoDB query contains any write/delete operation."""
+    query_text = json.dumps(query)
+    for op in _FORBIDDEN_MONGO_OPS:
+        # Word-boundary check: look for the op as a JSON key or value
+        if re.search(r'(?<!")"' + re.escape(op) + r'"', query_text):
+            raise ValueError(
+                f"การดำเนินการ '{op}' ไม่ได้รับอนุญาต — อนุญาตเฉพาะการสืบค้นข้อมูลเท่านั้น"
+            )
+    logger.debug("[security] MongoDB validation passed")
 
 
 # Singleton used by main.py
