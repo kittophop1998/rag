@@ -113,8 +113,16 @@ class RAGEngine:
         return self._llm
 
     def reload(self) -> None:
-        """Force the next call to re-load the Chroma vector store from disk."""
+        """Release the current Chroma client so the next call re-loads from disk.
+
+        Explicitly deletes the reference and runs a GC cycle so that the
+        underlying SQLite connection is closed before a force-rebuild wipes the
+        directory.  Without this, ChromaDB's Rust bindings detect the moved/
+        deleted file and raise SQLITE_READONLY_DBMOVED (code 1032).
+        """
+        import gc
         self._vectorstore = None
+        gc.collect()
 
     # -- streaming entry point -----------------------------------------------
     async def ask_stream(self, question: str) -> AsyncGenerator[str, None]:

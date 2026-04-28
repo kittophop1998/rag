@@ -473,8 +473,11 @@ async def api_upload(
 async def api_reindex(_: UserSession = Depends(require_admin)):
     """Force a rebuild of the ChromaDB RAG index from ./documents (admin only)."""
     try:
-        build_vectorstore(force=True)
+        # Release the existing Chroma client (and close its SQLite connection)
+        # BEFORE wiping the directory.  Deleting the directory while the Rust
+        # bindings still hold the file open causes SQLITE_READONLY_DBMOVED (1032).
         rag_engine.reload()
+        build_vectorstore(force=True)
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"status": "ok", "message": "Re-indexed successfully."}
