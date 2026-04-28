@@ -9,7 +9,7 @@
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sarabun:wght@400;500;600;700&display=swap"
     rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/style.css?v=20260428b" />
   <link rel="icon"
     href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%A4%96%3C/text%3E%3C/svg%3E" />
 </head>
@@ -91,7 +91,7 @@
         <!-- Brand header -->
         <div class="sidebar-header">
           <div class="brand">
-            <div class="brand-logo">
+            <!-- <div class="brand-logo">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="10" />
@@ -99,7 +99,7 @@
                 <line x1="9" y1="9" x2="9.01" y2="9" stroke-width="3" />
                 <line x1="15" y1="9" x2="15.01" y2="9" stroke-width="3" />
               </svg>
-            </div>
+            </div> -->
             <span class="brand-name">Company RAG</span>
           </div>
           <button id="sidebarCollapseBtn" class="icon-btn" title="ซ่อน Sidebar" aria-label="ซ่อน Sidebar">
@@ -209,6 +209,9 @@
 
       </div>
     </aside>
+
+    <!-- Sidebar backdrop (mobile only, shown when sidebar is open) -->
+    <div id="sidebarBackdrop" class="sidebar-backdrop" aria-hidden="true"></div>
 
     <!-- Mobile sidebar toggle -->
     <button id="mobileSidebarBtn" class="mobile-sidebar-btn" aria-label="เปิด Sidebar">
@@ -655,7 +658,7 @@
   <!-- Toast notifications -->
   <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/script.js"></script>
+  <script src="/static/script.js?v=20260428b"></script>
 </body>
 
 </html>

@@ -367,7 +367,7 @@ a { color: var(--accent); text-decoration: none; }
   letter-spacing: 0.3px;
 }
 
-/* Mobile sidebar toggle */
+/* Sidebar toggle (used both on mobile and on desktop when collapsed) */
 .mobile-sidebar-btn {
   display: none;
   position: fixed;
@@ -376,13 +376,16 @@ a { color: var(--accent); text-decoration: none; }
   border-radius: 10px;
   background: var(--panel);
   border: 1px solid var(--border-2);
-  color: var(--text-dim);
+  color: var(--text);
   place-items: center;
   z-index: 50;
   box-shadow: var(--shadow-sm);
-  transition: background var(--transition);
+  transition: background var(--transition), color var(--transition);
+  cursor: pointer;
 }
-.mobile-sidebar-btn:hover { background: var(--panel-2); }
+.mobile-sidebar-btn:hover { background: var(--panel-2); color: var(--text); }
+
+.app.sidebar-collapsed .mobile-sidebar-btn { display: grid; }
 
 /* =============================================================
    CHAT MAIN
@@ -1807,10 +1810,28 @@ a { color: var(--accent); text-decoration: none; }
     z-index: 40;
     box-shadow: var(--shadow-lg);
   }
-  .sidebar.mobile-open { transform: translateX(0); }
+  .sidebar.mobile-open { transform: translateX(0) !important; }
   .app.sidebar-collapsed .sidebar { transform: translateX(-100%); width: var(--sidebar-w); min-width: var(--sidebar-w); }
 
   .mobile-sidebar-btn { display: grid; }
+  /* Hide hamburger while sidebar is open on mobile */
+  .sidebar.mobile-open ~ .mobile-sidebar-btn { display: none !important; }
+
+  /* Dim backdrop when sidebar is open on mobile */
+  .sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(2px);
+    z-index: 35;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--transition);
+  }
+  .sidebar.mobile-open ~ .sidebar-backdrop {
+    opacity: 1;
+    pointer-events: auto;
+  }
 
   .chat-main { padding-top: 0; }
 

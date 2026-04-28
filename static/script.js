@@ -619,18 +619,33 @@ class App {
     });
 
     const mobileBtn = $('mobileSidebarBtn');
-    mobileBtn.addEventListener('click', () => {
-      $('sidebar').classList.toggle('mobile-open');
+    mobileBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      const app = document.getElementById('app');
+      const sidebar = $('sidebar');
+      if (window.innerWidth <= 768) {
+        app.classList.remove('sidebar-collapsed');
+        sidebar.classList.toggle('mobile-open');
+      } else {
+        app.classList.remove('sidebar-collapsed');
+      }
     });
 
     document.addEventListener('click', e => {
       const sidebar = $('sidebar');
       if (window.innerWidth <= 768 && sidebar.classList.contains('mobile-open')) {
-        if (!sidebar.contains(e.target) && e.target !== mobileBtn) {
+        if (!sidebar.contains(e.target) && !mobileBtn.contains(e.target)) {
           sidebar.classList.remove('mobile-open');
         }
       }
     });
+
+    const backdrop = $('sidebarBackdrop');
+    if (backdrop) {
+      backdrop.addEventListener('click', () => {
+        $('sidebar').classList.remove('mobile-open');
+      });
+    }
 
     $('newChatBtn').addEventListener('click', () => {
       this._startNewChat();
