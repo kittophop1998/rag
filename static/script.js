@@ -117,7 +117,13 @@ const Auth = {
 
 /* ================================================================
    MARKDOWN RENDERER
-   Handles the subset of Markdown that LLMs typically produce.
+   Handles the subset of Markdown that LLMs typically produce,
+   including image syntax: ![alt](url) and bare image URLs.
+
+   Key design: images are extracted into placeholders FIRST, all
+   markdown text processing runs on the placeholder-substituted text,
+   then images are restored LAST — so italic/bold regexes never
+   touch raw HTML attribute strings.
    ================================================================ */
 function md(raw) {
   if (!raw) return '';
@@ -132,12 +138,38 @@ function md(raw) {
       return `<pre><code${lang}>${esc(m[2].trim())}</code></pre>`;
     }
 
-    let t = esc(part);
+    // ── Step 1: extract images into placeholders (raw URLs, before esc) ──
+    const imgSlots = [];
+    const SLOT = (i) => `\x02IMGSLOT${i}\x03`;   // \x02/\x03 = rare control chars
+
+    // ![alt](url)  — standard markdown image
+    let work = part.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_, alt, url) => {
+      const i = imgSlots.length;
+      imgSlots.push(`<img src="${url.trim()}" alt="${alt.replace(/"/g, '&quot;')}" class="md-img">`);
+      return SLOT(i);
+    });
+
+    // bare image URL on its own: http(s)://... ending with image extension
+    work = work.replace(/(?<![(\[])https?:\/\/\S+\.(?:png|jpe?g|gif|webp|svg|bmp)(?:\?\S*)?(?![)\]])/gi, (url) => {
+      const i = imgSlots.length;
+      imgSlots.push(`<img src="${url.trim()}" alt="" class="md-img">`);
+      return SLOT(i);
+    });
+
+    // ── Step 2: escape HTML in the remaining text ──
+    let t = esc(work);
+
+    // ── Step 3: inline Markdown on escaped text (never touches imgSlots) ──
+    // Inline links [text](url) — must come before italic to avoid [_text_](url) issues
+    t = t.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, url) =>
+      `<a href="${url.trim()}" target="_blank" rel="noopener noreferrer">${text}</a>`
+    );
+
     t = t.replace(/`([^`\n]+)`/g, '<code>$1</code>');
     t = t.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
-    t = t.replace(/__([^_\n]+)__/g, '<strong>$1</strong>');
     t = t.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
-    t = t.replace(/_([^_\n]+)_/g, '<em>$1</em>');
+    // _italic_ only at word-boundaries (avoids matching underscores in identifiers/filenames)
+    t = t.replace(/(^|[\s([>])_([^_\n]+)_(?=[\s,.)!\]<]|$)/gm, '$1<em>$2</em>');
     t = t.replace(/^### (.+)$/gm, '<h3>$1</h3>');
     t = t.replace(/^## (.+)$/gm, '<h2>$1</h2>');
     t = t.replace(/^# (.+)$/gm, '<h1>$1</h1>');
@@ -158,6 +190,9 @@ function md(raw) {
       if (/^<(h[1-3]|ul|ol|pre|li)/.test(trimmed)) return trimmed;
       return `<p>${trimmed.replace(/\n/g, '<br>')}</p>`;
     }).join('');
+
+    // ── Step 4: restore images LAST (after all text processing) ──
+    imgSlots.forEach((html, i) => { t = t.split(esc(SLOT(i))).join(html); });
 
     return t;
   });
@@ -282,6 +317,67 @@ const API = {
     const json = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(json.detail || `HTTP ${r.status}`);
     return json;
+  },
+
+  // ── DB Auto-Index ────────────────────────────────────────────────
+  async indexDatabase(id) {
+    const r = await fetch(`${CFG.DB_URL}/${id}/index`, { method: 'POST', headers: Auth.headers() });
+    const json = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(json.detail || `HTTP ${r.status}`);
+    return json;
+  },
+
+  async getIndexStatus(id) {
+    const r = await fetch(`${CFG.DB_URL}/${id}/index-status`, { headers: Auth.headers() });
+    if (!r.ok) return { status: 'none', message: '' };
+    return r.json().catch(() => ({ status: 'none', message: '' }));
+  },
+
+  async deleteDbIndex(id) {
+    const r = await fetch(`${CFG.DB_URL}/${id}/index`, { method: 'DELETE', headers: Auth.headers() });
+    const json = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(json.detail || `HTTP ${r.status}`);
+    return json;
+  },
+
+  // ── Per-group control ────────────────────────────────────────────
+  async listGroupStates(connId) {
+    const r = await fetch(`${CFG.DB_URL}/${connId}/groups`, { headers: Auth.headers() });
+    if (!r.ok) return { groups: [] };
+    return r.json().catch(() => ({ groups: [] }));
+  },
+
+  async setGroupEnabled(connId, groupName, enabled) {
+    const r = await fetch(
+      `${CFG.DB_URL}/${encodeURIComponent(connId)}/groups/${encodeURIComponent(groupName)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...Auth.headers() },
+        body: JSON.stringify({ enabled }),
+      },
+    );
+    const json = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(json.detail || `HTTP ${r.status}`);
+    return json;
+  },
+
+  async indexGroup(connId, groupName) {
+    const r = await fetch(
+      `${CFG.DB_URL}/${encodeURIComponent(connId)}/groups/${encodeURIComponent(groupName)}/index`,
+      { method: 'POST', headers: Auth.headers() },
+    );
+    const json = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(json.detail || `HTTP ${r.status}`);
+    return json;
+  },
+
+  async getGroupIndexStatus(connId, groupName) {
+    const r = await fetch(
+      `${CFG.DB_URL}/${encodeURIComponent(connId)}/groups/${encodeURIComponent(groupName)}/index-status`,
+      { headers: Auth.headers() },
+    );
+    if (!r.ok) return { status: 'idle', message: '' };
+    return r.json().catch(() => ({ status: 'idle', message: '' }));
   },
 
   // ── DB Natural-Language Query ────────────────────────────────────
@@ -542,6 +638,9 @@ class App {
     this._selectedDbId   = null;    // selected DB connection id in db mode
     this._dbConnections  = [];      // cached list of enabled DB connections
     this._eventsBound    = false;   // guard against duplicate event binding on re-login
+    this._dbListCache    = [];      // latest API list (for settings → group overview)
+    this._dbIndexByConn  = {};       // conn_id → last GET index-status payload
+    this._dbGroupStates  = {};       // conn_id → {groupName: {enabled, last_indexed_at}}
   }
 
   /** Boot: check auth first, then bind events. */
@@ -567,11 +666,59 @@ class App {
       this._bindSettings();
       this._bindKnowledgeBase();
       this._bindSuggestions();
+      this._bindTopbarNav();
+      this._bindMobileBottomNav();
       this._eventsBound = true;
     }
+    this._switchView('chat');
     await this._renderHistory();
-    if (Auth.isAdmin()) this._loadDocs();
     $('chatInput').focus();
+  }
+
+  /**
+   * Switch the visible top-level view.
+   * @param {'chat'|'knowledge'|'settings'} name
+   */
+  _switchView(name) {
+    const app = document.getElementById('app');
+    if (!app) return;
+
+    // Don't allow non-admins into admin views
+    if ((name === 'knowledge' || name === 'settings') && !Auth.isAdmin()) {
+      name = 'chat';
+    }
+
+    app.dataset.view = name;
+
+    // Show/hide each view
+    document.querySelectorAll('.view').forEach(v => {
+      const isActive = v.dataset.view === name;
+      v.classList.toggle('active', isActive);
+      if (isActive) {
+        v.removeAttribute('hidden');
+        v.style.display = '';
+      } else {
+        v.setAttribute('hidden', '');
+        v.style.display = 'none';
+      }
+    });
+
+    // Highlight nav items (topbar + bottom nav)
+    document.querySelectorAll('.topbar-nav-item').forEach(b =>
+      b.classList.toggle('active', b.dataset.view === name)
+    );
+    document.querySelectorAll('.bottom-nav-item').forEach(b => {
+      if (b.dataset.view) b.classList.toggle('active', b.dataset.view === name);
+      else b.classList.remove('active');
+    });
+
+    // Close mobile sidebar drawer when switching pages
+    const sidebar = $('sidebar');
+    if (sidebar) sidebar.classList.remove('mobile-open');
+
+    // Lazy-load data for the view
+    if (name === 'knowledge')      this._loadDocs();
+    else if (name === 'settings')  this._loadDatabases();
   }
 
   /** Show or hide elements marked admin-only based on current role. */
@@ -582,7 +729,7 @@ class App {
     });
   }
 
-  /** Populate the sidebar footer with username and role badge. */
+  /** Populate the topbar with username and role badge. */
   _updateUserDisplay() {
     const username = Auth.getUsername();
     const role     = Auth.getRole();
@@ -593,8 +740,8 @@ class App {
     if (avatar)  avatar.textContent  = (username[0] || '?').toUpperCase();
     if (nameEl)  nameEl.textContent  = username || '—';
     if (roleEl) {
-      roleEl.textContent  = role === 'admin' ? 'Admin' : 'User';
-      roleEl.className    = `sidebar-user-role role-badge role-${role}`;
+      roleEl.textContent = role === 'admin' ? 'Admin' : 'User';
+      roleEl.className   = `topbar-user-role role-badge role-${role}`;
     }
   }
 
@@ -657,27 +804,38 @@ class App {
 
   /* ── Sidebar ────────────────────────────────────────────────── */
   _bindSidebar() {
-    $('sidebarCollapseBtn').addEventListener('click', () => {
-      document.getElementById('app').classList.toggle('sidebar-collapsed');
-    });
+    // Close/collapse button inside sidebar (X button on mobile, close on desktop)
+    const collapseBtn = $('sidebarCollapseBtn');
+    if (collapseBtn) {
+      collapseBtn.addEventListener('click', () => {
+        const sidebar = $('sidebar');
+        if (window.innerWidth <= 768) {
+          sidebar.classList.remove('mobile-open');
+        } else {
+          document.getElementById('app').classList.toggle('sidebar-collapsed');
+        }
+      });
+    }
 
+    // Topbar hamburger — toggle sidebar on both desktop and mobile
     const mobileBtn = $('mobileSidebarBtn');
-    mobileBtn.addEventListener('click', e => {
-      e.stopPropagation();
-      const app = document.getElementById('app');
-      const sidebar = $('sidebar');
-      if (window.innerWidth <= 768) {
-        app.classList.remove('sidebar-collapsed');
-        sidebar.classList.toggle('mobile-open');
-      } else {
-        app.classList.remove('sidebar-collapsed');
-      }
-    });
+    if (mobileBtn) {
+      mobileBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        const app = document.getElementById('app');
+        const sidebar = $('sidebar');
+        if (window.innerWidth <= 768) {
+          sidebar.classList.toggle('mobile-open');
+        } else {
+          app.classList.toggle('sidebar-collapsed');
+        }
+      });
+    }
 
     document.addEventListener('click', e => {
       const sidebar = $('sidebar');
       if (window.innerWidth <= 768 && sidebar.classList.contains('mobile-open')) {
-        if (!sidebar.contains(e.target) && !mobileBtn.contains(e.target)) {
+        if (!sidebar.contains(e.target) && !(mobileBtn && mobileBtn.contains(e.target))) {
           sidebar.classList.remove('mobile-open');
         }
       }
@@ -701,6 +859,42 @@ class App {
       showLogin();
       this._bindLogin();
     });
+  }
+
+  /* ── Topbar Navigation ──────────────────────────────────────── */
+  _bindTopbarNav() {
+    document.querySelectorAll('.topbar-nav-item[data-view]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const view = btn.dataset.view;
+        this._switchView(view);
+        if (view === 'chat') $('chatInput').focus();
+      });
+    });
+  }
+
+  /* ── Mobile Bottom Navigation ───────────────────────────────── */
+  _bindMobileBottomNav() {
+    // Tabs that switch view
+    document.querySelectorAll('.bottom-nav-item[data-view]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const view = btn.dataset.view;
+        this._switchView(view);
+        if (view === 'chat') $('chatInput').focus();
+      });
+    });
+
+    // History — toggle sidebar drawer (only meaningful in chat view)
+    const btnHistory = $('bottomNavHistory');
+    if (btnHistory) {
+      btnHistory.addEventListener('click', () => {
+        // Make sure we're in chat view, then open the sidebar drawer
+        if (document.getElementById('app').dataset.view !== 'chat') {
+          this._switchView('chat');
+        }
+        const sidebar = $('sidebar');
+        sidebar.classList.add('mobile-open');
+      });
+    }
   }
 
   /* ── Chat History ───────────────────────────────────────────── */
@@ -1101,7 +1295,6 @@ class App {
       fullText = result.answer || '(ไม่มีคำตอบ)';
       setContent(fullText, false);
       finalize();
-      this._appendDbResult(msgEl, result);
     } catch (err) {
       if (err.message.includes('401') || err.message.toLowerCase().includes('session')) {
         Auth.clearToken(); showLogin(); return;
@@ -1310,18 +1503,14 @@ class App {
 
   /* ── Knowledge Base ─────────────────────────────────────────── */
   _bindKnowledgeBase() {
-    $('kbToggleBtn').addEventListener('click', () => {
-      const panel = $('kbPanel');
-      const isOpen = panel.classList.toggle('open');
-      $('kbToggleBtn').setAttribute('aria-expanded', isOpen);
-      panel.setAttribute('aria-hidden', !isOpen);
-      if (isOpen) this._loadDocs();
-    });
+    const reindexBtn  = $('reindexBtn');
+    const uploadInput = $('uploadInput');
+    if (!reindexBtn || !uploadInput) return;
 
-    $('reindexBtn').addEventListener('click', async () => {
-      const btn = $('reindexBtn');
-      btn.disabled = true;
-      btn.innerHTML = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1s linear infinite"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> กำลัง Rebuild...`;
+    reindexBtn.addEventListener('click', async () => {
+      reindexBtn.disabled = true;
+      const original = reindexBtn.innerHTML;
+      reindexBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1s linear infinite"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> กำลัง Rebuild...`;
       try {
         await API.reindex();
         toast('สร้าง Index สำเร็จแล้ว — พร้อมตอบคำถามจากเอกสารใหม่!', 'success');
@@ -1329,12 +1518,12 @@ class App {
       } catch (err) {
         toast(`Rebuild ไม่สำเร็จ: ${err.message}`, 'error');
       } finally {
-        btn.disabled = false;
-        btn.innerHTML = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Rebuild Index`;
+        reindexBtn.disabled = false;
+        reindexBtn.innerHTML = original;
       }
     });
 
-    $('uploadInput').addEventListener('change', async e => {
+    uploadInput.addEventListener('change', async e => {
       const files = Array.from(e.target.files || []);
       e.target.value = '';
       if (!files.length) return;
@@ -1344,18 +1533,22 @@ class App {
 
   async _loadDocs() {
     const list = $('docsList');
+    if (!list) return;
     try {
       const data = await API.documents();
       if (!data.documents.length) {
         list.innerHTML = '<p class="docs-empty">ยังไม่มีไฟล์ PDF<br>กดอัปโหลดเพื่อเพิ่มเอกสาร</p>';
         return;
       }
+      const fileSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
       list.innerHTML = data.documents.map(doc => {
         const statusKey   = doc.indexed ? 'ready' : 'indexing';
         const statusLabel = doc.indexed ? 'Ready' : 'Indexing';
         return `
-        <div class="doc-item" title="${esc(doc.name)} (${fmtBytes(doc.size)})">
-          <span class="doc-item-name">📄 ${esc(doc.name)}</span>
+        <div class="doc-item" title="${esc(doc.name)}">
+          <span class="doc-item-icon">${fileSvg}</span>
+          <span class="doc-item-name">${esc(doc.name)}</span>
+          <span class="doc-item-size">${fmtBytes(doc.size)}</span>
           <span class="doc-item-badge ${statusKey}">${statusLabel}</span>
         </div>`;
       }).join('');
@@ -1377,47 +1570,23 @@ class App {
     await this._loadDocs();
   }
 
-  /* ── Settings Modal ─────────────────────────────────────────── */
+  /* ── Settings Page ──────────────────────────────────────────── */
   _bindSettings() {
-    const modal    = $('settingsModal');
-    const backdrop = $('modalBackdrop');
-    const closeBtn = $('modalCloseBtn');
-
-    const open = () => {
-      /* Reset inline forms each time modal opens — avoids stale visibility */
-      this._hideDbForm();
-      this._hideUrlForm();
-      this._hideUserForm();
-      modal.classList.add('open');
-      modal.removeAttribute('aria-hidden');
-      this._loadDatabases();
-    };
-    const close = () => {
-      modal.classList.remove('open');
-      modal.setAttribute('aria-hidden', 'true');
-      this._hideDbForm();
-      this._hideUrlForm();
-      this._hideUserForm();
-    };
-
-    $('settingsBtn').addEventListener('click', () => open());
-
-    backdrop.addEventListener('click', close);
-    closeBtn.addEventListener('click', close);
-    document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
-
-    // Tab switching
+    // Settings opens via _switchView('settings') from topbar/bottom nav.
+    // Tab switching within the page:
     document.querySelectorAll('.settings-tab').forEach(tab => {
       tab.addEventListener('click', () => {
         document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
         document.querySelectorAll('.settings-tab-panel').forEach(p => {
           p.classList.remove('active');
+          p.style.display = 'none';
           p.setAttribute('aria-hidden', 'true');
         });
         tab.classList.add('active');
         const panel = $(`tab${tab.dataset.tab.charAt(0).toUpperCase() + tab.dataset.tab.slice(1)}`);
         if (panel) {
           panel.classList.add('active');
+          panel.style.display = '';
           panel.removeAttribute('aria-hidden');
         }
         /* Collapse forms that belong to other tabs so state stays consistent */
@@ -1463,6 +1632,9 @@ class App {
       }
 
       if (!dbs.length) {
+        this._dbListCache = [];
+        this._dbIndexByConn = {};
+        this._renderDbGroupOverview();
         list.innerHTML = `
           <div class="db-list-empty">
             <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
@@ -1477,44 +1649,74 @@ class App {
         return;
       }
 
+      this._dbListCache = dbs;
+      this._dbIndexByConn = {};
+
       list.innerHTML = dbs.map(db => {
         const typeInfo = DB_TYPES[db.db_type] || DB_TYPES.other;
         const maskedUrl = this._maskUrl(db.url);
         return `
           <div class="db-item" data-id="${db.id}">
-            <div class="db-item-left">
-              <span class="db-item-icon">${typeInfo.icon}</span>
-              <div class="db-item-info">
-                <div class="db-item-name">${esc(db.name)}</div>
-                <div class="db-item-meta">
-                  <span class="db-type-badge">${esc(typeInfo.label)}</span>
-                  <span class="db-item-url" title="${esc(db.url)}">${esc(maskedUrl)}</span>
+            <div class="db-item-row">
+              <div class="db-item-left">
+                <span class="db-item-icon">${typeInfo.icon}</span>
+                <div class="db-item-info">
+                  <div class="db-item-name">${esc(db.name)}</div>
+                  <div class="db-item-meta">
+                    <span class="db-type-badge">${esc(typeInfo.label)}</span>
+                    <span class="db-item-url" title="${esc(db.url)}">${esc(maskedUrl)}</span>
+                  </div>
+                  ${db.description ? `<div class="db-item-desc">${esc(db.description)}</div>` : ''}
+                  <div class="db-index-status-row" id="idx-row-${db.id}">
+                    <span class="db-index-badge db-index-none" id="idx-badge-${db.id}">
+                      ยังไม่ได้ Index
+                    </span>
+                  </div>
                 </div>
-                ${db.description ? `<div class="db-item-desc">${esc(db.description)}</div>` : ''}
               </div>
-            </div>
-            <div class="db-item-actions">
-              <label class="db-toggle" title="${db.enabled ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}">
-                <input type="checkbox" class="db-toggle-input" data-db-id="${db.id}" ${db.enabled ? 'checked' : ''} />
-                <span class="db-toggle-track"></span>
-              </label>
-              <button class="db-action-btn db-edit-btn" data-edit="${db.id}" title="แก้ไข">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                </svg>
-              </button>
-              <button class="db-action-btn db-delete-btn" data-delete="${db.id}" title="ลบ">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="3 6 5 6 21 6"/>
-                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-                  <path d="M10 11v6M14 11v6"/>
-                  <path d="M9 6V4h6v2"/>
-                </svg>
-              </button>
+              <div class="db-item-actions">
+                <label class="db-toggle" title="${db.enabled ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}">
+                  <input type="checkbox" class="db-toggle-input" data-db-id="${db.id}" ${db.enabled ? 'checked' : ''} />
+                  <span class="db-toggle-track"></span>
+                </label>
+                <button class="db-action-btn db-index-btn" data-index-id="${db.id}" title="Index ข้อมูลลง RAG">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                    <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                    <line x1="12" y1="22.08" x2="12" y2="12"/>
+                  </svg>
+                </button>
+                <button class="db-action-btn db-edit-btn" data-edit="${db.id}" title="แก้ไข">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                  </svg>
+                </button>
+                <button class="db-action-btn db-delete-btn" data-delete="${db.id}" title="ลบ">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                    <path d="M10 11v6M14 11v6"/>
+                    <path d="M9 6V4h6v2"/>
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>`;
       }).join('');
+
+      this._dbGroupStates = {};
+      dbs.forEach(db => {
+        API.getIndexStatus(db.id).then(s => this._applyIndexStatus(db.id, s)).catch(() => {});
+        API.listGroupStates(db.id).then(r => {
+          const map = {};
+          (r.groups || []).forEach(g => { map[g.group_name] = g; });
+          this._dbGroupStates[db.id] = map;
+          this._renderDbGroupOverview();
+        }).catch(() => {});
+      });
+
+      this._renderDbGroupOverview();
 
       // Bind events on list items
       list.querySelectorAll('.db-toggle-input').forEach(chk => {
@@ -1549,8 +1751,208 @@ class App {
         });
       });
 
+      list.querySelectorAll('[data-index-id]').forEach(btn => {
+        btn.addEventListener('click', () => this._handleDbIndex(btn.dataset.indexId));
+      });
+
     } catch (err) {
+      this._dbListCache = [];
+      this._dbIndexByConn = {};
+      this._renderDbGroupOverview();
       list.innerHTML = `<p class="docs-empty">โหลดข้อมูลไม่สำเร็จ: ${esc(err.message)}</p>`;
+    }
+  }
+
+  /** Rebuild overview list below DB cards — one row per [DB name] + domain group */
+  _renderDbGroupOverview() {
+    const ul = $('dbGroupIndexList');
+    if (!ul) return;
+
+    const cmp = (a, b) => String(a).localeCompare(String(b), 'th');
+
+    const rows = [];
+    for (const db of this._dbListCache || []) {
+      const st = this._dbIndexByConn[db.id];
+      if (!st || st.status !== 'indexed') continue;
+      const gm = st.group_map || {};
+      const tblRows = st.table_rows || {};
+      const groupStates = this._dbGroupStates[db.id] || {};
+      const names = Object.keys(gm).sort(cmp);
+      for (const gName of names) {
+        const tables = gm[gName] || [];
+        const line = `[DB] ${db.name} ${gName}`;
+        const tablesDetail = tables
+          .map(t => {
+            const n = tblRows[t];
+            return typeof n === 'number' ? `${t} (${n} rows)` : t;
+          })
+          .join(', ');
+        const tipOneLine = tablesDetail ? `${line} — ${tablesDetail}` : line;
+        const stateRow = groupStates[gName] || {};
+        const enabled = stateRow.enabled !== false;
+        rows.push({ line, tipOneLine, tblCount: tables.length, enabled, connId: db.id, gName });
+      }
+    }
+    rows.sort((x, y) => cmp(x.line, y.line));
+
+    if (!rows.length) {
+      ul.innerHTML = `
+        <li class="db-group-overview-placeholder">
+          — ยังไม่มีรายการ —
+          <span class="db-group-overview-hint-inline">เมื่อ Index สำเร็จ โดเมนที่ตรวจพบจะแสดงที่นี่</span>
+        </li>`;
+      return;
+    }
+
+    const spinSvg = `<svg class="grp-spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>`;
+    const rebuildSvg = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>`;
+
+    ul.innerHTML = rows.map(r => `
+      <li class="db-group-overview-item${r.enabled ? '' : ' grp-disabled'}"
+          data-conn="${esc(r.connId)}" data-gname="${esc(r.gName)}"
+          title="${esc(r.tipOneLine)}">
+        <label class="grp-toggle" title="${r.enabled ? 'ปิดกลุ่มนี้' : 'เปิดกลุ่มนี้'}">
+          <input type="checkbox" class="grp-toggle-input" ${r.enabled ? 'checked' : ''}
+            data-conn="${esc(r.connId)}" data-gname="${esc(r.gName)}" />
+          <span class="grp-toggle-track"></span>
+        </label>
+        <span class="db-group-overview-line">${esc(r.line)}</span>
+        ${r.tblCount ? `<span class="db-group-overview-n">${r.tblCount} ตาราง</span>` : ''}
+        <button class="grp-rebuild-btn" data-conn="${esc(r.connId)}" data-gname="${esc(r.gName)}"
+          title="Rebuild Index กลุ่มนี้">
+          <span class="grp-rebuild-label">${rebuildSvg} Rebuild</span>
+          <span class="grp-rebuild-running hidden">${spinSvg} กำลัง Index...</span>
+        </button>
+      </li>`).join('');
+
+    // Bind toggle
+    ul.querySelectorAll('.grp-toggle-input').forEach(chk => {
+      chk.addEventListener('change', async () => {
+        const connId = chk.dataset.conn;
+        const gName  = chk.dataset.gname;
+        const li = chk.closest('li');
+        try {
+          await API.setGroupEnabled(connId, gName, chk.checked);
+          li.classList.toggle('grp-disabled', !chk.checked);
+          if (!this._dbGroupStates[connId]) this._dbGroupStates[connId] = {};
+          this._dbGroupStates[connId][gName] = { enabled: chk.checked };
+          toast(chk.checked ? `เปิดกลุ่ม "${gName}" แล้ว` : `ปิดกลุ่ม "${gName}" แล้ว`, 'success', 2000);
+        } catch (err) {
+          toast(`ไม่สำเร็จ: ${err.message}`, 'error');
+          chk.checked = !chk.checked;
+          li.classList.toggle('grp-disabled', !chk.checked);
+        }
+      });
+    });
+
+    // Bind rebuild
+    ul.querySelectorAll('.grp-rebuild-btn').forEach(btn => {
+      btn.addEventListener('click', () => this._handleGroupRebuild(btn));
+    });
+  }
+
+  async _handleGroupRebuild(btn) {
+    const connId = btn.dataset.conn;
+    const gName  = btn.dataset.gname;
+    const label   = btn.querySelector('.grp-rebuild-label');
+    const running = btn.querySelector('.grp-rebuild-running');
+
+    btn.disabled = true;
+    label.classList.add('hidden');
+    running.classList.remove('hidden');
+
+    try {
+      await API.indexGroup(connId, gName);
+      toast(`เริ่ม Rebuild กลุ่ม "${gName}"`, 'success', 3000);
+      this._pollGroupRebuild(connId, gName, btn, label, running);
+    } catch (err) {
+      toast(`Rebuild ไม่สำเร็จ: ${err.message}`, 'error');
+      btn.disabled = false;
+      label.classList.remove('hidden');
+      running.classList.add('hidden');
+    }
+  }
+
+  _pollGroupRebuild(connId, gName, btn, label, running) {
+    const poll = () => {
+      API.getGroupIndexStatus(connId, gName).then(s => {
+        if (s.status === 'indexing') {
+          if (running) running.textContent = `กำลัง Index... ${s.progress ? s.progress + '%' : ''}`;
+          setTimeout(poll, 2500);
+        } else {
+          if (btn) { btn.disabled = false; }
+          if (label) label.classList.remove('hidden');
+          if (running) running.classList.add('hidden');
+          if (s.status === 'done') {
+            toast(`Rebuild กลุ่ม "${gName}" สำเร็จ`, 'success', 3000);
+            // Refresh index status to update table_rows in overview
+            API.getIndexStatus(connId).then(ns => this._applyIndexStatus(connId, ns)).catch(() => {});
+          } else if (s.status === 'error') {
+            toast(`Rebuild "${gName}" ล้มเหลว: ${s.message}`, 'error');
+          }
+        }
+      }).catch(() => setTimeout(poll, 4000));
+    };
+    setTimeout(poll, 2500);
+  }
+
+  /** Apply an index status object to badge + overview list */
+  _applyIndexStatus(id, s) {
+    this._dbIndexByConn[id] = s;
+    this._renderDbGroupOverview();
+
+    const badge = document.getElementById(`idx-badge-${id}`);
+    if (!badge) return;
+    badge.className = 'db-index-badge';
+    switch (s.status) {
+      case 'indexed': {
+        badge.classList.add('db-index-ok');
+        const groupCount = s.groups?.length || 0;
+        const tableCount = s.tables ?? Object.keys(s.table_rows || {}).length;
+        badge.innerHTML = `
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+          Indexed${tableCount ? ` · ${tableCount} ตาราง` : ''}${s.chunks ? ` · ${s.chunks} chunks` : ''}${groupCount ? ` · ${groupCount} กลุ่ม` : ''}
+          <button class="idx-del-btn" data-del-idx="${id}" title="ลบ Index">×</button>`;
+        badge.querySelector('[data-del-idx]')?.addEventListener('click', async e => {
+          e.stopPropagation();
+          if (!confirm('ลบ Index ข้อมูลของ DB นี้?')) return;
+          try {
+            await API.deleteDbIndex(id);
+            toast('ลบ Index แล้ว', 'success', 2000);
+            this._applyIndexStatus(id, { status: 'none', message: 'ยังไม่ได้ Index' });
+          } catch (err) { toast(`ลบไม่สำเร็จ: ${err.message}`, 'error'); }
+        });
+        break;
+      }
+      case 'indexing':
+        badge.classList.add('db-index-running');
+        badge.innerHTML = `<span class="idx-spinner"></span> ${esc(s.message || 'กำลัง Index...')}${s.progress ? ` (${s.progress}%)` : ''}`;
+        setTimeout(() => API.getIndexStatus(id).then(ns => this._applyIndexStatus(id, ns)).catch(() => {}), 3000);
+        break;
+      case 'error':
+        badge.classList.add('db-index-error');
+        badge.textContent = `⚠ ${s.message || 'เกิดข้อผิดพลาด'}`;
+        break;
+      default:
+        badge.classList.add('db-index-none');
+        badge.textContent = 'ยังไม่ได้ Index';
+    }
+  }
+  async _handleDbIndex(id) {
+    const s = await API.getIndexStatus(id).catch(() => ({ status: 'none' }));
+    if (s.status === 'indexing') {
+      toast('กำลัง Index อยู่แล้ว รอสักครู่...', 'info', 3000);
+      return;
+    }
+    if (s.status === 'indexed') {
+      if (!confirm('Re-index ข้อมูลใหม่ทั้งหมด? Index เดิมจะถูกลบและสร้างใหม่')) return;
+    }
+    try {
+      await API.indexDatabase(id);
+      toast('เริ่ม Index ข้อมูล — อาจใช้เวลาสักครู่', 'success', 4000);
+      this._applyIndexStatus(id, { status: 'indexing', message: 'เริ่มต้น...', progress: 0 });
+    } catch (err) {
+      toast(`Index ไม่สำเร็จ: ${err.message}`, 'error');
     }
   }
 
@@ -1650,40 +2052,42 @@ class App {
           : 'ยังไม่ได้ Index';
         return `
           <div class="db-item" data-id="${src.id}">
-            <div class="db-item-left">
-              <span class="db-item-icon">🌐</span>
-              <div class="db-item-info">
-                <div class="db-item-name">${esc(src.name)}</div>
-                <div class="db-item-meta">
-                  <span class="db-type-badge">depth ${src.crawl_depth} · ${depthLabel}</span>
-                  <span class="db-item-url" title="${esc(src.url)}">${esc(src.url)}</span>
+            <div class="db-item-row">
+              <div class="db-item-left">
+                <span class="db-item-icon">🌐</span>
+                <div class="db-item-info">
+                  <div class="db-item-name">${esc(src.name)}</div>
+                  <div class="db-item-meta">
+                    <span class="db-type-badge">depth ${src.crawl_depth} · ${depthLabel}</span>
+                    <span class="db-item-url" title="${esc(src.url)}">${esc(src.url)}</span>
+                  </div>
+                  ${src.description ? `<div class="db-item-desc">${esc(src.description)}</div>` : ''}
+                  <div class="db-item-desc" style="opacity:.55;font-size:.75rem">${esc(lastIndexed)}</div>
                 </div>
-                ${src.description ? `<div class="db-item-desc">${esc(src.description)}</div>` : ''}
-                <div class="db-item-desc" style="opacity:.55;font-size:.75rem">${esc(lastIndexed)}</div>
               </div>
-            </div>
-            <div class="db-item-actions">
-              <label class="db-toggle" title="${src.enabled ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}">
-                <input type="checkbox" class="db-toggle-input url-toggle-input"
-                  data-url-id="${src.id}" ${src.enabled ? 'checked' : ''} />
-                <span class="db-toggle-track"></span>
-              </label>
-              <button class="db-action-btn db-edit-btn" data-edit="${src.id}" title="แก้ไข">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                  stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                </svg>
-              </button>
-              <button class="db-action-btn db-delete-btn" data-delete="${src.id}" title="ลบ">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                  stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="3 6 5 6 21 6"/>
-                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-                  <path d="M10 11v6M14 11v6"/>
-                  <path d="M9 6V4h6v2"/>
-                </svg>
-              </button>
+              <div class="db-item-actions">
+                <label class="db-toggle" title="${src.enabled ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}">
+                  <input type="checkbox" class="db-toggle-input url-toggle-input"
+                    data-url-id="${src.id}" ${src.enabled ? 'checked' : ''} />
+                  <span class="db-toggle-track"></span>
+                </label>
+                <button class="db-action-btn db-edit-btn" data-edit="${src.id}" title="แก้ไข">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                  </svg>
+                </button>
+                <button class="db-action-btn db-delete-btn" data-delete="${src.id}" title="ลบ">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                    <path d="M10 11v6M14 11v6"/>
+                    <path d="M9 6V4h6v2"/>
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>`;
       }).join('');
@@ -1812,40 +2216,42 @@ class App {
         const isSelf    = u.username === me;
         return `
           <div class="db-item user-item" data-id="${u.id}">
-            <div class="db-item-left">
-              <div class="user-avatar-sm">${(u.display_name || u.username)[0].toUpperCase()}</div>
-              <div class="db-item-info">
-                <div class="db-item-name">
-                  ${esc(u.display_name || u.username)}
-                  ${isSelf ? '<span class="user-self-badge">ฉัน</span>' : ''}
-                </div>
-                <div class="db-item-meta">
-                  <span class="${roleCls}">${roleLabel}</span>
-                  <span class="db-item-url">${esc(u.username)}</span>
-                  <span class="user-status ${statusCls}">${statusTxt}</span>
+            <div class="db-item-row">
+              <div class="db-item-left">
+                <div class="user-avatar-sm">${(u.display_name || u.username)[0].toUpperCase()}</div>
+                <div class="db-item-info">
+                  <div class="db-item-name">
+                    ${esc(u.display_name || u.username)}
+                    ${isSelf ? '<span class="user-self-badge">ฉัน</span>' : ''}
+                  </div>
+                  <div class="db-item-meta">
+                    <span class="${roleCls}">${roleLabel}</span>
+                    <span class="db-item-url">${esc(u.username)}</span>
+                    <span class="user-status ${statusCls}">${statusTxt}</span>
+                  </div>
                 </div>
               </div>
-            </div>
-            <div class="db-item-actions">
-              <label class="db-toggle" title="${u.enabled ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}">
-                <input type="checkbox" class="db-toggle-input user-toggle-input"
-                  data-user-id="${u.id}" ${u.enabled ? 'checked' : ''} ${isSelf ? 'disabled' : ''} />
-                <span class="db-toggle-track"></span>
-              </label>
-              <button class="db-action-btn db-edit-btn user-edit-btn" data-edit="${u.id}" title="แก้ไข">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                </svg>
-              </button>
-              <button class="db-action-btn db-delete-btn user-delete-btn"
-                data-delete="${u.id}" title="ลบ" ${isSelf ? 'disabled' : ''}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="3 6 5 6 21 6"/>
-                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-                  <path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
-                </svg>
-              </button>
+              <div class="db-item-actions">
+                <label class="db-toggle" title="${u.enabled ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}">
+                  <input type="checkbox" class="db-toggle-input user-toggle-input"
+                    data-user-id="${u.id}" ${u.enabled ? 'checked' : ''} ${isSelf ? 'disabled' : ''} />
+                  <span class="db-toggle-track"></span>
+                </label>
+                <button class="db-action-btn db-edit-btn user-edit-btn" data-edit="${u.id}" title="แก้ไข">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                  </svg>
+                </button>
+                <button class="db-action-btn db-delete-btn user-delete-btn"
+                  data-delete="${u.id}" title="ลบ" ${isSelf ? 'disabled' : ''}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                    <path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>`;
       }).join('');

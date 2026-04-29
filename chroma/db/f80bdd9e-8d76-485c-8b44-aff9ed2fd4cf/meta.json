@@ -1,0 +1,48 @@
+{
+  "message": "สำเร็จ: 10 ตาราง, 154 rows, 21 chunks, 4 กลุ่ม",
+  "tables": 10,
+  "rows": 154,
+  "chunks": 21,
+  "groups": [
+    "การจัดการสินทรัพย์",
+    "ผู้ใช้และแผนก",
+    "หมวดหมู่และสถานที่",
+    "การจัดการการย้ายข้อมูล"
+  ],
+  "group_map": {
+    "การจัดการสินทรัพย์": [
+      "asset_items",
+      "asset_requests",
+      "asset_users",
+      "assets"
+    ],
+    "ผู้ใช้และแผนก": [
+      "departments",
+      "users"
+    ],
+    "หมวดหมู่และสถานที่": [
+      "categories",
+      "locations"
+    ],
+    "การจัดการการย้ายข้อมูล": [
+      "kysely_migration",
+      "kysely_migration_lock"
+    ]
+  },
+  "table_rows": {
+    "asset_items": 25,
+    "asset_requests": 33,
+    "users": 3,
+    "departments": 10,
+    "asset_users": 32,
+    "assets": 6,
+    "categories": 4,
+    "kysely_migration": 11,
+    "kysely_migration_lock": 1,
+    "locations": 29
+  },
+  "indexed_at": "2026-04-29T08:31:35.070789+00:00",
+  "group_indexed_at": {
+    "ผู้ใช้และแผนก": "2026-04-29T09:12:38.512089+00:00"
+  }
+}

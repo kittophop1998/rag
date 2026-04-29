@@ -8,30 +8,45 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Prompt:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
     rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=20260429a" />
-  <meta name="theme-color" content="#0B0E14" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      corePlugins: { preflight: false },
+      theme: {
+        extend: {
+          colors: {
+            'brand-blue': '#3B82F6',
+            'brand-red': '#DC2626',
+            'brand-navy': '#0D1729',
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="/static/style.css?v=20260430e" />
+  <meta name="theme-color" content="#06090F" />
   <link rel="icon"
     href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%A4%96%3C/text%3E%3C/svg%3E" />
 </head>
 
 <body>
 
-  <!-- ═══════════════════════════════════════════════════════════ LOGIN PAGE -->
+  <!-- ════════════════════════════════════════════════════════ LOGIN PAGE -->
   <div id="loginPage" class="login-page" aria-hidden="true">
     <div class="login-bg-glow login-bg-glow-1"></div>
     <div class="login-bg-glow login-bg-glow-2"></div>
     <div class="login-card">
+
       <div class="login-logo">
-        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"
           stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="10" />
-          <path d="M8 14s1.5 2 4 2 4-2 4-2" />
-          <line x1="9" y1="9" x2="9.01" y2="9" stroke-width="3" />
-          <line x1="15" y1="9" x2="15.01" y2="9" stroke-width="3" />
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
         </svg>
       </div>
+
       <h1 class="login-title">Ruangthong RAG</h1>
       <p class="login-sub">ระบบถาม-ตอบเอกสารภายในบริษัท</p>
 
@@ -84,596 +99,724 @@
     </div>
   </div>
 
-  <div id="app" class="app" aria-hidden="true">
+  <!-- ════════════════════════════════════════════════════════ APP SHELL -->
+  <div id="app" class="app" data-view="chat" aria-hidden="true">
 
-    <!-- ═══════════════════════════════════════════════════════════ SIDEBAR -->
-    <aside id="sidebar" class="sidebar">
-      <div class="sidebar-inner">
+    <!-- ── TOP BAR ──────────────────────────────────────────────────── -->
+    <header class="topbar" id="topbar">
 
-        <!-- Brand header -->
-        <div class="sidebar-header">
-          <div class="brand">
-            <!-- <div class="brand-logo">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="10" />
-                <path d="M8 14s1.5 2 4 2 4-2 4-2" />
-                <line x1="9" y1="9" x2="9.01" y2="9" stroke-width="3" />
-                <line x1="15" y1="9" x2="15.01" y2="9" stroke-width="3" />
-              </svg>
-            </div> -->
-            <span class="brand-name">Ruangthong RAG</span>
-          </div>
-          <button id="sidebarCollapseBtn" class="icon-btn" title="ซ่อน Sidebar" aria-label="ซ่อน Sidebar">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <line x1="9" y1="3" x2="9" y2="21" />
-            </svg>
-          </button>
-        </div>
-
-        <!-- New Chat -->
-        <button id="newChatBtn" class="btn-new-chat">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+      <!-- Left: Hamburger + Brand -->
+      <div class="topbar-left">
+        <button id="mobileSidebarBtn" class="topbar-hamburger" aria-label="เปิด/ปิด Sidebar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
             stroke-linecap="round">
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <line x1="3" y1="12" x2="21" y2="12" />
+            <line x1="3" y1="18" x2="21" y2="18" />
           </svg>
-          แชทใหม่
+        </button>
+        <div class="brand">
+          <div class="brand-logo">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+            </svg>
+          </div>
+          <span class="brand-name">Ruangthong RAG</span>
+        </div>
+      </div>
+
+      <!-- Center: Desktop Navigation -->
+      <nav class="topbar-nav" aria-label="เมนูหลัก">
+        <button class="topbar-nav-item active" data-view="chat" id="chatNavBtn" title="แชทกับ AI">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
+          <span>แชท</span>
         </button>
 
-        <!-- Chat History -->
-        <div class="history-section">
-          <div id="chatHistory" class="chat-history-list">
-            <p class="history-empty">ยังไม่มีประวัติการสนทนา</p>
+        <button class="topbar-nav-item admin-only" data-view="knowledge" id="kbNavBtn" style="display:none"
+          title="จัดการ Knowledge Base">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+          </svg>
+          <span>Knowledge Base</span>
+        </button>
+
+        <button class="topbar-nav-item admin-only" data-view="settings" id="settingsBtn" style="display:none"
+          title="ตั้งค่าระบบ">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <path
+              d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+          <span>ตั้งค่า</span>
+        </button>
+      </nav>
+
+      <!-- Right: User info + Logout -->
+      <div class="topbar-right">
+        <div class="topbar-user" id="topbarUser">
+          <div class="topbar-avatar" id="sidebarUserAvatar">?</div>
+          <div class="topbar-user-info">
+            <span class="topbar-user-name" id="sidebarUserName">—</span>
+            <span class="topbar-user-role" id="sidebarUserRole"></span>
           </div>
         </div>
+        <button id="logoutBtn" class="topbar-logout" title="ออกจากระบบ" aria-label="ออกจากระบบ">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+            <polyline points="16 17 21 12 16 7" />
+            <line x1="21" y1="12" x2="9" y2="12" />
+          </svg>
+          <span class="topbar-logout-label">ออกจากระบบ</span>
+        </button>
+      </div>
 
-        <!-- Knowledge Base accordion (admin only) -->
-        <div class="kb-section admin-only" style="display:none">
-          <button class="kb-toggle" id="kbToggleBtn" aria-expanded="false">
-            <span class="kb-toggle-left">
+    </header>
+
+    <!-- ── APP BODY ─────────────────────────────────────────────────── -->
+    <div class="app-body">
+
+      <!-- ── SIDEBAR (Chat History only) ────────────────────────── -->
+      <aside id="sidebar" class="sidebar">
+        <div class="sidebar-inner">
+
+          <!-- Sidebar header -->
+          <div class="sidebar-header">
+            <span class="sidebar-title">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
+              </svg>
+              ประวัติการสนทนา
+            </span>
+            <button id="sidebarCollapseBtn" class="sidebar-close-btn" title="ปิด Sidebar" aria-label="ปิด Sidebar">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+
+          <!-- New Chat Button -->
+          <div class="sidebar-newchat-wrap">
+            <button id="newChatBtn" class="btn-new-chat">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                stroke-linecap="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              แชทใหม่
+            </button>
+          </div>
+
+          <!-- Chat History List -->
+          <div class="history-section">
+            <div id="chatHistory" class="chat-history-list">
+              <p class="history-empty">ยังไม่มีประวัติการสนทนา</p>
+            </div>
+          </div>
+
+          <!-- Sidebar Footer -->
+          <div class="sidebar-footer">
+            <span class="sidebar-version">v1.0.0</span>
+          </div>
+
+        </div>
+      </aside>
+
+      <div id="sidebarBackdrop" class="sidebar-backdrop" aria-hidden="true"></div>
+
+      <!-- ── VIEW CONTAINER ───────────────────────────────────────── -->
+      <div class="view-container">
+
+        <!-- ════════════════════════════════════ VIEW: CHAT -->
+        <main id="chatView" class="view view-chat active" data-view="chat">
+
+          <!-- Empty State -->
+          <div id="emptyState" class="empty-state">
+            <div class="empty-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
                 <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                <line x1="12" y1="7" x2="16" y2="7" />
+                <line x1="12" y1="11" x2="16" y2="11" />
+                <line x1="8" y1="15" x2="16" y2="15" />
               </svg>
-              Knowledge Base
+            </div>
+            <span class="empty-online-chip">
+              <span class="empty-online-dot"></span>
+              ระบบพร้อมใช้งาน
             </span>
-            <svg class="kb-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              stroke-width="2.5" stroke-linecap="round">
-              <polyline points="6 9 12 15 18 9" />
-            </svg>
-          </button>
-
-          <div id="kbPanel" class="kb-panel" aria-hidden="true">
-            <div id="docsList" class="docs-list">
-              <p class="docs-loading">กำลังโหลด...</p>
-            </div>
-            <div class="kb-actions">
-              <label for="uploadInput" class="btn-kb upload-label">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                  stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="16 16 12 12 8 16" />
-                  <line x1="12" y1="12" x2="12" y2="21" />
-                  <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" />
-                </svg>
-                อัปโหลด PDF
-              </label>
-              <input type="file" id="uploadInput" accept=".pdf" multiple hidden />
-              <button id="reindexBtn" class="btn-kb">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                  stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="23 4 23 10 17 10" />
-                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-                </svg>
-                Rebuild Index
+            <h1 class="empty-title">Ruangthong RAG</h1>
+            <p class="empty-sub">ถามอะไรก็ได้เกี่ยวกับเอกสารของบริษัท<br>ระบบจะค้นหาคำตอบจากไฟล์ที่ Index ไว้เท่านั้น</p>
+            <div class="suggestion-grid" id="suggestionGrid">
+              <button class="suggestion-card" data-q="นโยบายบริษัทปี 2024 มีอะไรบ้าง?">
+                <span class="s-icon">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="16" y1="13" x2="8" y2="13" />
+                    <line x1="16" y1="17" x2="8" y2="17" />
+                  </svg>
+                </span>
+                <span>นโยบายบริษัทปี 2024 มีอะไรบ้าง?</span>
+              </button>
+              <button class="suggestion-card" data-q="วันหยุดและสิทธิการลาของพนักงานมีกี่วัน?">
+                <span class="s-icon">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                    <line x1="16" y1="2" x2="16" y2="6" />
+                    <line x1="8" y1="2" x2="8" y2="6" />
+                    <line x1="3" y1="10" x2="21" y2="10" />
+                  </svg>
+                </span>
+                <span>วันหยุดและสิทธิการลามีกี่วัน?</span>
+              </button>
+              <button class="suggestion-card" data-q="สวัสดิการพนักงานมีอะไรบ้าง?">
+                <span class="s-icon">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path
+                      d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                  </svg>
+                </span>
+                <span>สวัสดิการพนักงานมีอะไรบ้าง?</span>
+              </button>
+              <button class="suggestion-card" data-q="ขั้นตอนการลาออกและเอกสารที่ต้องใช้มีอะไรบ้าง?">
+                <span class="s-icon">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                    <polyline points="16 17 21 12 16 7" />
+                    <line x1="21" y1="12" x2="9" y2="12" />
+                  </svg>
+                </span>
+                <span>ขั้นตอนการลาออกและเอกสารที่ต้องใช้?</span>
               </button>
             </div>
           </div>
-        </div>
 
-        <!-- Sidebar footer -->
-        <div class="sidebar-footer">
+          <!-- Messages -->
+          <div id="messages" class="messages" role="log" aria-live="polite" aria-label="บทสนทนา"></div>
 
-          <!-- Current user info -->
-          <div class="sidebar-user" id="sidebarUser">
-            <div class="sidebar-user-avatar" id="sidebarUserAvatar">?</div>
-            <div class="sidebar-user-info">
-              <span class="sidebar-user-name" id="sidebarUserName">—</span>
-              <span class="sidebar-user-role" id="sidebarUserRole"></span>
-            </div>
+          <!-- Composer -->
+          <div class="composer-wrap">
+            <form id="composer" class="composer" autocomplete="off">
+              <div class="composer-box">
+
+                <div class="composer-tools">
+                  <button type="button" id="composerModeBtn" class="composer-mode-chip" aria-haspopup="true"
+                    aria-expanded="false" title="เลือกโหมดการถาม">
+                    <svg id="composerModeIcon" width="13" height="13" viewBox="0 0 24 24" fill="none"
+                      stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                    </svg>
+                    <span id="composerModeLabel">ถามเอกสาร</span>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                      stroke-linecap="round" stroke-linejoin="round" class="chevron">
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                  </button>
+
+                  <button type="button" id="composerDbChip" class="composer-db-chip hidden" aria-haspopup="true"
+                    aria-expanded="false" title="เลือกฐานข้อมูล">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                      stroke-linecap="round" stroke-linejoin="round">
+                      <ellipse cx="12" cy="5" rx="9" ry="3" />
+                      <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+                      <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+                    </svg>
+                    <span id="composerDbLabel">เลือกฐานข้อมูล</span>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                      stroke-linecap="round" stroke-linejoin="round" class="chevron">
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                  </button>
+
+                  <div id="composerModePopup" class="composer-popup" style="display:none" role="menu">
+                    <div class="composer-popup-header">โหมดการถาม</div>
+                    <button type="button" class="composer-popup-item" data-mode="rag" role="menuitemradio">
+                      <span class="composer-popup-icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                          stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                        </svg>
+                      </span>
+                      <span class="composer-popup-text">
+                        <span class="composer-popup-title">ถามเอกสาร</span>
+                        <span class="composer-popup-desc">ค้นหาคำตอบจากไฟล์ใน Index</span>
+                      </span>
+                      <svg class="composer-popup-check" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    </button>
+                    <button type="button" class="composer-popup-item" data-mode="db" role="menuitemradio">
+                      <span class="composer-popup-icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                          stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <ellipse cx="12" cy="5" rx="9" ry="3" />
+                          <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+                          <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+                        </svg>
+                      </span>
+                      <span class="composer-popup-text">
+                        <span class="composer-popup-title">ถามฐานข้อมูล</span>
+                        <span class="composer-popup-desc">สอบถาม SQL ผ่าน OpenAI</span>
+                      </span>
+                      <svg class="composer-popup-check" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    </button>
+                  </div>
+
+                  <div id="composerDbPopup" class="composer-popup" style="display:none" role="menu">
+                    <div class="composer-popup-header">เลือกฐานข้อมูล</div>
+                    <div id="composerDbList" class="composer-popup-dblist">
+                      <div class="composer-popup-empty">กำลังโหลด...</div>
+                    </div>
+                  </div>
+
+                  <select id="dbSelector" class="hidden" aria-hidden="true" tabindex="-1">
+                    <option value="">— เลือกฐานข้อมูล —</option>
+                  </select>
+                </div>
+
+                <div class="composer-input-row">
+                  <textarea id="chatInput" rows="1" placeholder="ถามเกี่ยวกับเอกสารของบริษัท..."
+                    aria-label="พิมพ์คำถาม"></textarea>
+                  <button type="submit" id="sendBtn" class="send-btn" disabled aria-label="ส่งคำถาม">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                      stroke-linecap="round" stroke-linejoin="round">
+                      <line x1="12" y1="19" x2="12" y2="5" />
+                      <polyline points="5 12 12 5 19 12" />
+                    </svg>
+                  </button>
+                </div>
+
+              </div>
+              <p class="composer-hint" id="composerHint">Enter ส่ง · Shift+Enter ขึ้นบรรทัดใหม่ · ระบบตอบจากเอกสาร FAISS
+                เท่านั้น</p>
+            </form>
           </div>
 
-          <!-- Settings (admin only) -->
-          <button id="settingsBtn" class="sidebar-footer-btn admin-only" style="display:none" title="ตั้งค่าระบบ">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="3" />
-              <path
-                d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-            </svg>
-            ตั้งค่าระบบ
-          </button>
+        </main>
 
-          <button id="logoutBtn" class="sidebar-footer-btn sidebar-footer-btn--logout" title="ออกจากระบบ">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-              <polyline points="16 17 21 12 16 7" />
-              <line x1="21" y1="12" x2="9" y2="12" />
-            </svg>
-            ออกจากระบบ
-          </button>
-          <span class="sidebar-version">v1.0.0</span>
-        </div>
+        <!-- ════════════════════════════════════ VIEW: KNOWLEDGE BASE -->
+        <main id="knowledgeView" class="view view-page admin-only" data-view="knowledge" hidden style="display:none">
 
-      </div>
-    </aside>
+          <div class="page">
+            <header class="page-header">
+              <div class="page-title-block">
+                <h1 class="page-title">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                  </svg>
+                  Knowledge Base
+                </h1>
+                <p class="page-sub">จัดการเอกสาร PDF ที่ใช้ในการตอบคำถามของระบบ</p>
+              </div>
+              <div class="page-actions">
+                <label for="uploadInput" class="btn-secondary upload-label">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="16 16 12 12 8 16" />
+                    <line x1="12" y1="12" x2="12" y2="21" />
+                    <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" />
+                  </svg>
+                  อัปโหลด PDF
+                </label>
+                <input type="file" id="uploadInput" accept=".pdf" multiple hidden />
+                <button id="reindexBtn" class="btn-primary">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="23 4 23 10 17 10" />
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                  </svg>
+                  Rebuild Index
+                </button>
+              </div>
+            </header>
 
-    <!-- Sidebar backdrop (mobile only, shown when sidebar is open) -->
-    <div id="sidebarBackdrop" class="sidebar-backdrop" aria-hidden="true"></div>
+            <section class="card">
+              <div class="card-header">
+                <h2 class="card-title">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                  </svg>
+                  รายการเอกสาร
+                </h2>
+                <span class="card-hint">รองรับเฉพาะไฟล์ <strong>.pdf</strong> · ขนาดไม่เกิน 50 MB ต่อไฟล์</span>
+              </div>
+              <div class="card-body">
+                <div id="docsList" class="docs-list-page">
+                  <p class="docs-loading">กำลังโหลด...</p>
+                </div>
+              </div>
+            </section>
+          </div>
 
-    <!-- Mobile sidebar toggle -->
-    <button id="mobileSidebarBtn" class="mobile-sidebar-btn" aria-label="เปิด Sidebar">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-        stroke-linecap="round">
-        <line x1="3" y1="6" x2="21" y2="6" />
-        <line x1="3" y1="12" x2="21" y2="12" />
-        <line x1="3" y1="18" x2="21" y2="18" />
-      </svg>
-    </button>
+        </main>
 
-    <!-- ═══════════════════════════════════════════════════════════ MAIN CHAT -->
-    <main id="chatMain" class="chat-main">
+        <!-- ════════════════════════════════════ VIEW: SETTINGS -->
+        <main id="settingsView" class="view view-page admin-only" data-view="settings" hidden style="display:none">
 
-      <!-- Empty state (shown when no messages) -->
-      <div id="emptyState" class="empty-state">
-        <div class="empty-icon">
-          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
-            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M12 3v3" />
-            <path d="M12 18v3" />
-            <path d="M5.6 5.6l2.1 2.1" />
-            <path d="M16.3 16.3l2.1 2.1" />
-            <path d="M3 12h3" />
-            <path d="M18 12h3" />
-            <path d="M5.6 18.4l2.1-2.1" />
-            <path d="M16.3 7.7l2.1-2.1" />
-            <circle cx="12" cy="12" r="3.2" />
-          </svg>
-        </div>
-        <span class="empty-online-chip">
-          <span class="empty-online-dot"></span>
-          ระบบพร้อมใช้งาน
-        </span>
-        <h1 class="empty-title">Ruangthong RAG</h1>
-        <p class="empty-sub">ถามอะไรก็ได้เกี่ยวกับเอกสารของบริษัท<br>ระบบจะค้นหาคำตอบจากไฟล์ที่ Index ไว้เท่านั้น</p>
-        <div class="suggestion-grid" id="suggestionGrid">
-          <button class="suggestion-card" data-q="นโยบายบริษัทปี 2024 มีอะไรบ้าง?">
-            <span class="s-icon">📋</span>
-            <span>นโยบายบริษัทปี 2024 มีอะไรบ้าง?</span>
-          </button>
-          <button class="suggestion-card" data-q="วันหยุดและสิทธิการลาของพนักงานมีกี่วัน?">
-            <span class="s-icon">🏖️</span>
-            <span>วันหยุดและสิทธิการลามีกี่วัน?</span>
-          </button>
-          <button class="suggestion-card" data-q="สวัสดิการพนักงานมีอะไรบ้าง?">
-            <span class="s-icon">💰</span>
-            <span>สวัสดิการพนักงานมีอะไรบ้าง?</span>
-          </button>
-          <button class="suggestion-card" data-q="ขั้นตอนการลาออกและเอกสารที่ต้องใช้มีอะไรบ้าง?">
-            <span class="s-icon">📁</span>
-            <span>ขั้นตอนการลาออกและเอกสารที่ต้องใช้?</span>
-          </button>
-        </div>
-      </div>
+          <div class="page">
+            <header class="page-header">
+              <div class="page-title-block">
+                <h1 class="page-title" id="settingsTitle">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3" />
+                    <path
+                      d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                  </svg>
+                  ตั้งค่าระบบ
+                </h1>
+                <p class="page-sub">จัดการแหล่งข้อมูลเชื่อมต่อและบัญชีผู้ใช้งาน</p>
+              </div>
+            </header>
 
-      <!-- Messages list -->
-      <div id="messages" class="messages" role="log" aria-live="polite" aria-label="บทสนทนา"></div>
+            <!-- Hidden close button (legacy compatibility) -->
+            <button class="modal-close hidden" id="modalCloseBtn" aria-hidden="true"></button>
 
-      <!-- Composer (floating input bar) -->
-      <div class="composer-wrap">
-        <form id="composer" class="composer" autocomplete="off">
-          <div class="composer-box">
-
-            <!-- Mode chip (top-left of composer) -->
-            <div class="composer-tools">
-              <button type="button" id="composerModeBtn" class="composer-mode-chip" aria-haspopup="true"
-                aria-expanded="false" title="เลือกโหมดการถาม">
-                <svg id="composerModeIcon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                  stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-                </svg>
-                <span id="composerModeLabel">ถามเอกสาร</span>
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-                  stroke-linecap="round" stroke-linejoin="round" class="chevron">
-                  <polyline points="6 9 12 15 18 9" />
-                </svg>
-              </button>
-
-              <!-- DB selector chip (shown only in db mode) -->
-              <button type="button" id="composerDbChip" class="composer-db-chip hidden" aria-haspopup="true"
-                aria-expanded="false" title="เลือกฐานข้อมูล">
+            <!-- Tabs -->
+            <div class="settings-tabs" role="tablist">
+              <button class="settings-tab active" data-tab="databases" role="tab">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                   stroke-linecap="round" stroke-linejoin="round">
                   <ellipse cx="12" cy="5" rx="9" ry="3" />
                   <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
                   <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
                 </svg>
-                <span id="composerDbLabel">เลือกฐานข้อมูล</span>
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-                  stroke-linecap="round" stroke-linejoin="round" class="chevron">
-                  <polyline points="6 9 12 15 18 9" />
-                </svg>
+                ฐานข้อมูล
+                <span id="dbCountBadge" class="tab-badge hidden">0</span>
               </button>
+              <button class="settings-tab" data-tab="urls" role="tab">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="2" y1="12" x2="22" y2="12" />
+                  <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                </svg>
+                เว็บไซต์
+                <span id="urlCountBadge" class="tab-badge hidden">0</span>
+              </button>
+              <button class="settings-tab" data-tab="users" role="tab">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                  <circle cx="9" cy="7" r="4" />
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                </svg>
+                ผู้ใช้งาน
+                <span id="userCountBadge" class="tab-badge hidden">0</span>
+              </button>
+            </div>
 
-              <!-- Mode popup -->
-              <div id="composerModePopup" class="composer-popup" style="display:none" role="menu">
-                <div class="composer-popup-header">โหมดการถาม</div>
-                <button type="button" class="composer-popup-item" data-mode="rag" role="menuitemradio">
-                  <span class="composer-popup-icon">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                      stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-                      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+            <!-- Tab: Databases -->
+            <div id="tabDatabases" class="settings-tab-panel active" aria-hidden="false">
+              <section class="card">
+                <div class="card-header">
+                  <div class="card-header-text">
+                    <h2 class="card-title">ฐานข้อมูลที่เชื่อมต่อ</h2>
+                    <p class="card-hint">เพิ่ม Connection String / URL ของฐานข้อมูลที่ต้องการให้ OpenAI เข้าถึงได้
+                      รองรับหลายฐานข้อมูลพร้อมกัน</p>
+                  </div>
+                  <button id="addDbBtn" class="btn-primary">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                      stroke-linecap="round">
+                      <line x1="12" y1="5" x2="12" y2="19" />
+                      <line x1="5" y1="12" x2="19" y2="12" />
                     </svg>
-                  </span>
-                  <span class="composer-popup-text">
-                    <span class="composer-popup-title">ถามเอกสาร</span>
-                    <span class="composer-popup-desc">ค้นหาคำตอบจากไฟล์ใน Index</span>
-                  </span>
-                  <svg class="composer-popup-check" width="14" height="14" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                </button>
-                <button type="button" class="composer-popup-item" data-mode="db" role="menuitemradio">
-                  <span class="composer-popup-icon">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                      stroke-linecap="round" stroke-linejoin="round">
-                      <ellipse cx="12" cy="5" rx="9" ry="3" />
-                      <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+                    เพิ่มฐานข้อมูล
+                  </button>
+                </div>
+
+                <div id="dbForm" class="db-form hidden">
+                  <div class="db-form-title" id="dbFormTitle">เพิ่มฐานข้อมูลใหม่</div>
+                  <input type="hidden" id="dbFormId" />
+                  <div class="db-form-grid">
+                    <div class="db-form-field">
+                      <label class="db-form-label">ชื่อฐานข้อมูล <span class="required">*</span></label>
+                      <input type="text" id="dbFormName" class="db-form-input" placeholder="เช่น Company MySQL DB" />
+                    </div>
+                    <div class="db-form-field">
+                      <label class="db-form-label">ประเภท <span class="required">*</span></label>
+                      <select id="dbFormType" class="db-form-input db-form-select">
+                        <option value="mysql">MySQL</option>
+                        <option value="postgresql">PostgreSQL</option>
+                        <option value="mssql">MS SQL Server</option>
+                        <option value="mongodb">MongoDB</option>
+                        <option value="redis">Redis</option>
+                        <option value="rest">REST API</option>
+                        <option value="other">อื่นๆ</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="db-form-field">
+                    <label class="db-form-label">URL / Connection String <span class="required">*</span></label>
+                    <input type="text" id="dbFormUrl" class="db-form-input db-form-url"
+                      placeholder="เช่น mysql://user:pass@host:3306/dbname" spellcheck="false" />
+                  </div>
+                  <div class="db-form-field">
+                    <label class="db-form-label">คำอธิบาย (ไม่บังคับ)</label>
+                    <input type="text" id="dbFormDesc" class="db-form-input"
+                      placeholder="อธิบายการใช้งานหรือข้อมูลสำคัญ" />
+                  </div>
+                  <div class="db-form-actions">
+                    <button type="button" id="dbFormCancelBtn" class="btn-db-cancel">ยกเลิก</button>
+                    <button type="button" id="dbFormSaveBtn" class="btn-db-save">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="2.5" stroke-linecap="round">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                      บันทึก
+                    </button>
+                  </div>
+                </div>
+
+                <div id="dbList" class="db-list">
+                  <div class="db-list-empty">
+                    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <ellipse cx="12" cy="5" rx="9" ry="3" opacity=".55" />
+                      <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" opacity=".75" />
                       <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
                     </svg>
-                  </span>
-                  <span class="composer-popup-text">
-                    <span class="composer-popup-title">ถามฐานข้อมูล</span>
-                    <span class="composer-popup-desc">สอบถาม SQL ผ่าน OpenAI</span>
-                  </span>
-                  <svg class="composer-popup-check" width="14" height="14" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                </button>
-              </div>
-
-              <!-- DB selector popup -->
-              <div id="composerDbPopup" class="composer-popup" style="display:none" role="menu">
-                <div class="composer-popup-header">เลือกฐานข้อมูล</div>
-                <div id="composerDbList" class="composer-popup-dblist">
-                  <div class="composer-popup-empty">กำลังโหลด...</div>
+                    <p><strong>ยังไม่มีฐานข้อมูล</strong><br>กด "เพิ่มฐานข้อมูล" เพื่อเริ่มต้น</p>
+                  </div>
                 </div>
-              </div>
 
-              <!-- Hidden legacy select (kept for state compatibility) -->
-              <select id="dbSelector" class="hidden" aria-hidden="true" tabindex="-1">
-                <option value="">— เลือกฐานข้อมูล —</option>
-              </select>
+                <div id="dbGroupsOverview" class="db-groups-overview">
+                  <div class="db-groups-overview-head">
+                    <h3 class="db-groups-overview-title">รายการกลุ่มจากการ Index</h3>
+                    <p class="db-groups-overview-desc">
+                      แสดงแยกจากรายการ connection ด้านบน — รูปแบบแต่ละแถว:
+                      <span class="db-groups-format-sample">[DB] ชื่อที่ตั้ง ชื่อกลุ่ม</span>
+                    </p>
+                  </div>
+                  <ul id="dbGroupIndexList" class="db-group-overview-ul" aria-label="รายการกลุ่มจาก Index"></ul>
+                </div>
+              </section>
             </div>
 
-            <!-- Input row -->
-            <div class="composer-input-row">
-              <textarea id="chatInput" rows="1" placeholder="ถามเกี่ยวกับเอกสารของบริษัท..."
-                aria-label="พิมพ์คำถาม"></textarea>
-              <button type="submit" id="sendBtn" class="send-btn" disabled aria-label="ส่งคำถาม">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-                  stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="12" y1="19" x2="12" y2="5" />
-                  <polyline points="5 12 12 5 19 12" />
-                </svg>
-              </button>
+            <!-- Tab: URLs -->
+            <div id="tabUrls" class="settings-tab-panel" aria-hidden="true" style="display:none">
+              <section class="card">
+                <div class="card-header">
+                  <div class="card-header-text">
+                    <h2 class="card-title">แหล่งข้อมูล URL</h2>
+                    <p class="card-hint">เพิ่ม URL เว็บไซต์เพื่อให้ระบบดึงเนื้อหามา Index — เนื้อหาจะถูกรวมเข้า FAISS
+                      เมื่อกด <strong>Rebuild Index</strong></p>
+                  </div>
+                  <button id="addUrlBtn" class="btn-primary">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                      stroke-linecap="round">
+                      <line x1="12" y1="5" x2="12" y2="19" />
+                      <line x1="5" y1="12" x2="19" y2="12" />
+                    </svg>
+                    เพิ่ม URL
+                  </button>
+                </div>
+
+                <div id="urlForm" class="db-form hidden">
+                  <div class="db-form-title" id="urlFormTitle">เพิ่ม URL ใหม่</div>
+                  <input type="hidden" id="urlFormId" />
+                  <div class="db-form-grid">
+                    <div class="db-form-field">
+                      <label class="db-form-label">ชื่อแหล่งข้อมูล <span class="required">*</span></label>
+                      <input type="text" id="urlFormName" class="db-form-input" placeholder="เช่น เว็บไซต์บริษัท" />
+                    </div>
+                    <div class="db-form-field">
+                      <label class="db-form-label">ความลึกในการดึงข้อมูล</label>
+                      <select id="urlFormDepth" class="db-form-input db-form-select">
+                        <option value="0">0 — เฉพาะหน้าที่ระบุ</option>
+                        <option value="1">1 — รวมลิงค์ภายในหน้า</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="db-form-field">
+                    <label class="db-form-label">URL <span class="required">*</span></label>
+                    <input type="url" id="urlFormUrl" class="db-form-input db-form-url"
+                      placeholder="https://example.com/page" spellcheck="false" />
+                  </div>
+                  <div class="db-form-field">
+                    <label class="db-form-label">คำอธิบาย (ไม่บังคับ)</label>
+                    <input type="text" id="urlFormDesc" class="db-form-input" placeholder="อธิบายเนื้อหาของหน้าเว็บนี้" />
+                  </div>
+                  <div class="db-form-actions">
+                    <button type="button" id="urlFormCancelBtn" class="btn-db-cancel">ยกเลิก</button>
+                    <button type="button" id="urlFormSaveBtn" class="btn-db-save">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="2.5" stroke-linecap="round">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                      บันทึก
+                    </button>
+                  </div>
+                </div>
+
+                <div id="urlList" class="db-list">
+                  <div class="db-list-empty">
+                    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <circle cx="12" cy="12" r="10" />
+                      <line x1="2" y1="12" x2="22" y2="12" opacity=".65" />
+                      <path
+                        d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"
+                        opacity=".8" />
+                    </svg>
+                    <p><strong>ยังไม่มี URL แหล่งข้อมูล</strong><br>กด "เพิ่ม URL" เพื่อเริ่มต้น</p>
+                  </div>
+                </div>
+              </section>
             </div>
-          </div>
-          <p class="composer-hint" id="composerHint">Enter ส่ง · Shift+Enter ขึ้นบรรทัดใหม่ · ระบบตอบจากเอกสาร FAISS
-            เท่านั้น</p>
-        </form>
-      </div>
 
-    </main>
+            <!-- Tab: Users -->
+            <div id="tabUsers" class="settings-tab-panel" aria-hidden="true" style="display:none">
+              <section class="card">
+                <div class="card-header">
+                  <div class="card-header-text">
+                    <h2 class="card-title">ผู้ใช้งานในระบบ</h2>
+                    <p class="card-hint">จัดการบัญชีผู้ใช้งาน กำหนดสิทธิ์ <strong>Admin</strong> หรือ
+                      <strong>User</strong>
+                    </p>
+                  </div>
+                  <button id="addUserBtn" class="btn-primary">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                      stroke-linecap="round">
+                      <line x1="12" y1="5" x2="12" y2="19" />
+                      <line x1="5" y1="12" x2="19" y2="12" />
+                    </svg>
+                    เพิ่มผู้ใช้
+                  </button>
+                </div>
 
-    <!-- ═══════════════════════════════════════════════════════════ SETTINGS MODAL -->
-    <div id="settingsModal" class="modal" aria-hidden="true">
-      <div class="modal-backdrop" id="modalBackdrop"></div>
-      <div class="modal-dialog modal-dialog--wide" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+                <div id="userForm" class="db-form hidden">
+                  <div class="db-form-title" id="userFormTitle">เพิ่มผู้ใช้ใหม่</div>
+                  <input type="hidden" id="userFormId" />
+                  <div class="db-form-grid">
+                    <div class="db-form-field">
+                      <label class="db-form-label">ชื่อผู้ใช้ (username) <span class="required">*</span></label>
+                      <input type="text" id="userFormUsername" class="db-form-input" placeholder="เช่น john.doe"
+                        autocomplete="off" spellcheck="false" />
+                    </div>
+                    <div class="db-form-field">
+                      <label class="db-form-label">สิทธิ์ (Role) <span class="required">*</span></label>
+                      <select id="userFormRole" class="db-form-input db-form-select">
+                        <option value="user">User — ใช้แชทได้</option>
+                        <option value="admin">Admin — เข้าถึงได้ทุกส่วน</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="db-form-field">
+                    <label class="db-form-label">ชื่อที่แสดง</label>
+                    <input type="text" id="userFormDisplay" class="db-form-input" placeholder="เช่น John Doe" />
+                  </div>
+                  <div class="db-form-field">
+                    <label class="db-form-label" id="userFormPwLabel">รหัสผ่าน <span class="required">*</span></label>
+                    <input type="password" id="userFormPassword" class="db-form-input"
+                      placeholder="อย่างน้อย 6 ตัวอักษร" autocomplete="new-password" />
+                  </div>
+                  <div class="db-form-actions">
+                    <button type="button" id="userFormCancelBtn" class="btn-db-cancel">ยกเลิก</button>
+                    <button type="button" id="userFormSaveBtn" class="btn-db-save">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="2.5" stroke-linecap="round">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                      บันทึก
+                    </button>
+                  </div>
+                </div>
 
-        <div class="modal-header">
-          <h3 id="settingsTitle">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:8px">
-              <circle cx="12" cy="12" r="3" />
-              <path
-                d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-            </svg>
-            ตั้งค่าระบบ
-          </h3>
-          <button class="modal-close" id="modalCloseBtn" aria-label="ปิด">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-              stroke-linecap="round">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
-        </div>
-
-        <!-- Settings Tabs -->
-        <div class="settings-tabs">
-          <button class="settings-tab active" data-tab="databases">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round">
-              <ellipse cx="12" cy="5" rx="9" ry="3" />
-              <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
-              <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
-            </svg>
-            ฐานข้อมูล
-            <span id="dbCountBadge" class="tab-badge hidden">0</span>
-          </button>
-          <button class="settings-tab" data-tab="urls">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10" />
-              <line x1="2" y1="12" x2="22" y2="12" />
-              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-            </svg>
-            เว็บไซต์
-            <span id="urlCountBadge" class="tab-badge hidden">0</span>
-          </button>
-          <button class="settings-tab" data-tab="users">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-              <circle cx="9" cy="7" r="4" />
-              <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-            </svg>
-            ผู้ใช้งาน
-            <span id="userCountBadge" class="tab-badge hidden">0</span>
-          </button>
-        </div>
-
-        <!-- Tab: Databases -->
-        <div id="tabDatabases" class="modal-body settings-tab-panel active" aria-hidden="true">
-          <div class="db-header-row">
-            <div>
-              <p class="setting-hint" style="margin:0">เพิ่ม Connection String / URL ของฐานข้อมูลที่ต้องการให้ OpenAI
-                เข้าถึงได้<br>รองรับหลายฐานข้อมูลพร้อมกัน</p>
+                <div id="userList" class="db-list">
+                  <div class="db-list-empty">
+                    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                      <circle cx="9" cy="7" r="4" />
+                      <path d="M23 21v-2a4 4 0 0 0-3-3.87" opacity=".6" />
+                      <path d="M16 3.13a4 4 0 0 1 0 7.75" opacity=".6" />
+                    </svg>
+                    <p>กำลังโหลด...</p>
+                  </div>
+                </div>
+              </section>
             </div>
-            <button id="addDbBtn" class="btn-add-db">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-                stroke-linecap="round">
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-              เพิ่มฐานข้อมูล
-            </button>
-          </div>
 
-          <!-- Add / Edit Form (hidden by default) -->
-          <div id="dbForm" class="db-form hidden">
-            <div class="db-form-title" id="dbFormTitle">เพิ่มฐานข้อมูลใหม่</div>
-            <input type="hidden" id="dbFormId" />
-            <div class="db-form-grid">
-              <div class="db-form-field">
-                <label class="db-form-label">ชื่อฐานข้อมูล <span class="required">*</span></label>
-                <input type="text" id="dbFormName" class="db-form-input" placeholder="เช่น Company MySQL DB" />
-              </div>
-              <div class="db-form-field">
-                <label class="db-form-label">ประเภท <span class="required">*</span></label>
-                <select id="dbFormType" class="db-form-input db-form-select">
-                  <option value="mysql">MySQL</option>
-                  <option value="postgresql">PostgreSQL</option>
-                  <option value="mssql">MS SQL Server</option>
-                  <option value="mongodb">MongoDB</option>
-                  <option value="redis">Redis</option>
-                  <option value="rest">REST API</option>
-                  <option value="other">อื่นๆ</option>
-                </select>
-              </div>
-            </div>
-            <div class="db-form-field">
-              <label class="db-form-label">URL / Connection String <span class="required">*</span></label>
-              <input type="text" id="dbFormUrl" class="db-form-input db-form-url"
-                placeholder="เช่น mysql://user:pass@host:3306/dbname" spellcheck="false" />
-            </div>
-            <div class="db-form-field">
-              <label class="db-form-label">คำอธิบาย (ไม่บังคับ)</label>
-              <input type="text" id="dbFormDesc" class="db-form-input" placeholder="อธิบายการใช้งานหรือข้อมูลสำคัญ" />
-            </div>
-            <div class="db-form-actions">
-              <button type="button" id="dbFormCancelBtn" class="btn-db-cancel">ยกเลิก</button>
-              <button type="button" id="dbFormSaveBtn" class="btn-db-save">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-                  stroke-linecap="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                บันทึก
-              </button>
-            </div>
-          </div>
-
-          <!-- Database List -->
-          <div id="dbList" class="db-list">
-            <div class="db-list-empty">
-              <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"
-                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <ellipse cx="12" cy="5" rx="9" ry="3" opacity=".55" />
-                <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" opacity=".75" />
-                <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
-                <line x1="7" y1="9.4" x2="9" y2="9.4" stroke-width="1.2" opacity=".6" />
-                <line x1="7" y1="16" x2="11" y2="16" stroke-width="1.2" opacity=".4" />
-              </svg>
-              <p><strong>ยังไม่มีฐานข้อมูล</strong><br>กด "เพิ่มฐานข้อมูล" เพื่อเริ่มต้น</p>
-            </div>
-          </div>
-
-        </div>
-
-        <!-- Tab: URLs (Website data sources) -->
-        <div id="tabUrls" class="modal-body settings-tab-panel" aria-hidden="true">
-
-          <div class="db-header-row">
-            <div>
-              <p class="setting-hint" style="margin:0">เพิ่ม URL เว็บไซต์เพื่อให้ระบบดึงเนื้อหามา Index<br>
-                เนื้อหาจะถูกรวมเข้า FAISS เมื่อกด <strong>Rebuild Index</strong></p>
-            </div>
-            <button id="addUrlBtn" class="btn-add-db">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-                stroke-linecap="round">
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-              เพิ่ม URL
-            </button>
           </div>
 
-          <!-- Add / Edit URL Form (hidden by default) -->
-          <div id="urlForm" class="db-form hidden">
-            <div class="db-form-title" id="urlFormTitle">เพิ่ม URL ใหม่</div>
-            <input type="hidden" id="urlFormId" />
-            <div class="db-form-grid">
-              <div class="db-form-field">
-                <label class="db-form-label">ชื่อแหล่งข้อมูล <span class="required">*</span></label>
-                <input type="text" id="urlFormName" class="db-form-input" placeholder="เช่น เว็บไซต์บริษัท" />
-              </div>
-              <div class="db-form-field">
-                <label class="db-form-label">ความลึกในการดึงข้อมูล</label>
-                <select id="urlFormDepth" class="db-form-input db-form-select">
-                  <option value="0">0 — เฉพาะหน้าที่ระบุ</option>
-                  <option value="1">1 — รวมลิงค์ภายในหน้า</option>
-                </select>
-              </div>
-            </div>
-            <div class="db-form-field">
-              <label class="db-form-label">URL <span class="required">*</span></label>
-              <input type="url" id="urlFormUrl" class="db-form-input db-form-url" placeholder="https://example.com/page"
-                spellcheck="false" />
-            </div>
-            <div class="db-form-field">
-              <label class="db-form-label">คำอธิบาย (ไม่บังคับ)</label>
-              <input type="text" id="urlFormDesc" class="db-form-input" placeholder="อธิบายเนื้อหาของหน้าเว็บนี้" />
-            </div>
-            <div class="db-form-actions">
-              <button type="button" id="urlFormCancelBtn" class="btn-db-cancel">ยกเลิก</button>
-              <button type="button" id="urlFormSaveBtn" class="btn-db-save">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-                  stroke-linecap="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                บันทึก
-              </button>
-            </div>
-          </div>
+        </main>
 
-          <!-- URL Source List -->
-          <div id="urlList" class="db-list">
-            <div class="db-list-empty">
-              <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"
-                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="2" y1="12" x2="22" y2="12" opacity=".65" />
-                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" opacity=".8" />
-              </svg>
-              <p><strong>ยังไม่มี URL แหล่งข้อมูล</strong><br>กด "เพิ่ม URL" เพื่อเริ่มต้น</p>
-            </div>
-          </div>
+      </div><!-- /.view-container -->
 
-        </div>
+    </div><!-- /.app-body -->
 
-        <!-- Tab: Users -->
-        <div id="tabUsers" class="modal-body settings-tab-panel" aria-hidden="true">
-
-          <div class="db-header-row">
-            <div>
-              <p class="setting-hint" style="margin:0">จัดการบัญชีผู้ใช้งาน กำหนดสิทธิ์ <strong>Admin</strong> หรือ
-                <strong>User</strong>
-              </p>
-            </div>
-            <button id="addUserBtn" class="btn-add-db">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-                stroke-linecap="round">
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-              เพิ่มผู้ใช้
-            </button>
-          </div>
-
-          <!-- Add / Edit User Form -->
-          <div id="userForm" class="db-form hidden">
-            <div class="db-form-title" id="userFormTitle">เพิ่มผู้ใช้ใหม่</div>
-            <input type="hidden" id="userFormId" />
-            <div class="db-form-grid">
-              <div class="db-form-field">
-                <label class="db-form-label">ชื่อผู้ใช้ (username) <span class="required">*</span></label>
-                <input type="text" id="userFormUsername" class="db-form-input" placeholder="เช่น john.doe"
-                  autocomplete="off" spellcheck="false" />
-              </div>
-              <div class="db-form-field">
-                <label class="db-form-label">สิทธิ์ (Role) <span class="required">*</span></label>
-                <select id="userFormRole" class="db-form-input db-form-select">
-                  <option value="user">User — ใช้แชทได้</option>
-                  <option value="admin">Admin — เข้าถึงได้ทุกส่วน</option>
-                </select>
-              </div>
-            </div>
-            <div class="db-form-field">
-              <label class="db-form-label">ชื่อที่แสดง</label>
-              <input type="text" id="userFormDisplay" class="db-form-input" placeholder="เช่น John Doe" />
-            </div>
-            <div class="db-form-field">
-              <label class="db-form-label" id="userFormPwLabel">รหัสผ่าน <span class="required">*</span></label>
-              <input type="password" id="userFormPassword" class="db-form-input" placeholder="อย่างน้อย 6 ตัวอักษร"
-                autocomplete="new-password" />
-            </div>
-            <div class="db-form-actions">
-              <button type="button" id="userFormCancelBtn" class="btn-db-cancel">ยกเลิก</button>
-              <button type="button" id="userFormSaveBtn" class="btn-db-save">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-                  stroke-linecap="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                บันทึก
-              </button>
-            </div>
-          </div>
-
-          <!-- User List -->
-          <div id="userList" class="db-list">
-            <div class="db-list-empty">
-              <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"
-                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87" opacity=".6" />
-                <path d="M16 3.13a4 4 0 0 1 0 7.75" opacity=".6" />
-              </svg>
-              <p>กำลังโหลด...</p>
-            </div>
-          </div>
-
-        </div>
-
-      </div>
-    </div>
+    <!-- ── MOBILE BOTTOM NAV ─────────────────────────────────────── -->
+    <nav class="mobile-bottom-nav" id="mobileBottomNav" aria-label="เมนูหลัก (มือถือ)">
+      <button class="bottom-nav-item active" data-view="chat" id="bottomNavChat">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+        </svg>
+        <span>แชท</span>
+      </button>
+      <button class="bottom-nav-item" id="bottomNavHistory">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10" />
+          <polyline points="12 6 12 12 16 14" />
+        </svg>
+        <span>ประวัติ</span>
+      </button>
+      <button class="bottom-nav-item admin-only" data-view="knowledge" id="bottomNavKb" style="display:none">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+        </svg>
+        <span>ความรู้</span>
+      </button>
+      <button class="bottom-nav-item admin-only" data-view="settings" id="bottomNavSettings" style="display:none">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3" />
+          <path
+            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+        </svg>
+        <span>ตั้งค่า</span>
+      </button>
+    </nav>
 
   </div><!-- /#app -->
 
   <!-- Toast notifications -->
   <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/script.js?v=20260429b"></script>
+  <script src="/static/script.js?v=20260430e"></script>
 </body>
 
 </html>

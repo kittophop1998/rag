@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     # ── Auth ──────────────────────────────────────────────────────────────
     admin_username: str = "admin"
     admin_password: str = "admin1234"
+    auth_token_ttl_hours: int = 24 #24 hours
 
     # ── Server ────────────────────────────────────────────────────────────
     host: str = "0.0.0.0"

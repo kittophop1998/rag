@@ -107,6 +107,17 @@ def init_db() -> None:
                 created_at      TEXT NOT NULL,
                 last_indexed_at TEXT
             );
+
+            -- Per-group index state (enabled / disabled + last indexed time) ------
+            CREATE TABLE IF NOT EXISTS db_group_states (
+                conn_id         TEXT NOT NULL,
+                group_name      TEXT NOT NULL,
+                enabled         INTEGER NOT NULL DEFAULT 1,
+                last_indexed_at TEXT,
+                PRIMARY KEY (conn_id, group_name)
+            );
+            CREATE INDEX IF NOT EXISTS idx_dgs_conn
+                ON db_group_states(conn_id);
         """)
 
 
@@ -305,3 +316,56 @@ def add_message(
             (session_id, role, content, sources_json, now),
         )
     return {"role": role, "content": content, "sources": sources or [], "ts": now}
+
+
+# ---------------------------------------------------------------------------
+# DB Group States — per-(conn_id, group_name) enabled flag
+# ---------------------------------------------------------------------------
+
+def get_group_states(conn_id: str) -> dict[str, dict]:
+    """Return {group_name: {enabled, last_indexed_at}} for a connection."""
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT group_name, enabled, last_indexed_at FROM db_group_states WHERE conn_id=?",
+            (conn_id,),
+        ).fetchall()
+    return {
+        r["group_name"]: {
+            "enabled": bool(r["enabled"]),
+            "last_indexed_at": r["last_indexed_at"],
+        }
+        for r in rows
+    }
+
+
+def set_group_enabled(conn_id: str, group_name: str, enabled: bool) -> None:
+    """Upsert the enabled flag for a group within a connection."""
+    with _conn() as con:
+        con.execute(
+            """
+            INSERT INTO db_group_states(conn_id, group_name, enabled)
+            VALUES (?, ?, ?)
+            ON CONFLICT(conn_id, group_name) DO UPDATE SET enabled=excluded.enabled
+            """,
+            (conn_id, group_name, int(enabled)),
+        )
+
+
+def touch_group_indexed(conn_id: str, group_name: str) -> None:
+    """Update last_indexed_at timestamp and ensure the row exists."""
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    with _conn() as con:
+        con.execute(
+            """
+            INSERT INTO db_group_states(conn_id, group_name, enabled, last_indexed_at)
+            VALUES (?, ?, 1, ?)
+            ON CONFLICT(conn_id, group_name) DO UPDATE SET last_indexed_at=excluded.last_indexed_at
+            """,
+            (conn_id, group_name, now),
+        )
+
+
+def delete_group_states(conn_id: str) -> None:
+    """Remove all group state rows for a connection (called on DB delete)."""
+    with _conn() as con:
+        con.execute("DELETE FROM db_group_states WHERE conn_id=?", (conn_id,))

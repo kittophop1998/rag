@@ -12,8 +12,10 @@ Supported backends: MySQL, PostgreSQL, MSSQL, MongoDB
 
 from __future__ import annotations
 
+from datetime import date
 import json
 import logging
+import numbers
 import re
 from typing import Any
 
@@ -46,6 +48,8 @@ ABSOLUTE RULES — violation will cause the query to be rejected:
 - Output raw SQL only — no explanation, no markdown code fences.
 - Use ONLY column names that appear in the Schema below. Never guess or invent column names.
 - Add LIMIT 200 if the question does not specify a result count.
+- Current Date: {current_date}
+- Always use table aliases and qualify columns with aliases (e.g. u.id, o.created_at) to avoid ambiguous column errors.
 
 Schema:
 {schema}
@@ -79,14 +83,19 @@ Schema (collections & fields):
 _ANSWER_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """คุณคือผู้ช่วยวิเคราะห์ข้อมูลของบริษัท
 ตอบเป็นภาษาไทย กระชับ ชัดเจน เน้นสรุปตัวเลขและข้อมูลสำคัญ
-ถ้าผลลัพธ์ว่างเปล่า ให้บอกว่าไม่พบข้อมูลตามเงื่อนไขที่ระบุ"""),
-    ("human", """คำถาม: {question}
+ถ้าผลลัพธ์ว่างเปล่า ให้บอกว่าไม่พบข้อมูลตามเงื่อนไขที่ระบุ และแนะนำให้ลองค้นหาด้วยคำที่กว้างขึ้นหรือปรับช่วงเวลา
 
-Query ที่ใช้:
-{query}
+รูปแบบการตอบ:
+- ตอบเป็น Markdown
+- ถ้ามีข้อมูลหลายรายการให้สรุปเป็น bullet list หรือตาราง Markdown
+- ถ้ามี URL รูปภาพในผลลัพธ์ ให้แสดงด้วย syntax ![ชื่อ](url)"""),
+    ("human", """คำถาม: {question}
 
 ผลลัพธ์ ({row_count} แถว — แสดงสูงสุด 20 แถวแรก):
 {result}
+
+สถิติสรุปเพิ่มเติม (สำหรับกรณีข้อมูลมีจำนวนมาก):
+{aggregate_summary}
 
 กรุณาสรุปคำตอบ"""),
 ])
@@ -170,7 +179,12 @@ class TextToQueryEngine:
                     dialect = _DIALECT_MAP.get(db_type_l, "SQL")
                     chain = _SQL_PROMPT | self.llm | StrOutputParser()
                     raw_query = chain.invoke(
-                        {"dialect": dialect, "schema": schema, "question": question}
+                        {
+                            "dialect": dialect,
+                            "schema": schema,
+                            "question": question,
+                            "current_date": date.today().isoformat(),
+                        }
                     ).strip()
                 raw_query = _strip_fence(raw_query)
             except Exception as exc:  # noqa: BLE001
@@ -195,6 +209,7 @@ class TextToQueryEngine:
 
         # ── 5. Summarise ──────────────────────────────────────────────────
         result_preview = json.dumps(rows[:MAX_RESULT_PREVIEW_ROWS], ensure_ascii=False, default=str)
+        aggregate_summary = _build_aggregate_summary(rows, MAX_RESULT_PREVIEW_ROWS)
         try:
             answer_chain = _ANSWER_PROMPT | self.llm | StrOutputParser()
             answer = answer_chain.invoke(
@@ -203,6 +218,7 @@ class TextToQueryEngine:
                     "query": raw_query,
                     "row_count": len(rows),
                     "result": result_preview,
+                    "aggregate_summary": aggregate_summary,
                 }
             )
         except Exception as exc:  # noqa: BLE001
@@ -225,6 +241,46 @@ def _strip_fence(text: str) -> str:
     text = re.sub(r"^```[\w]*\n?", "", text)
     text = re.sub(r"\n?```$", "", text)
     return text.strip()
+
+
+def _build_aggregate_summary(rows: list[dict[str, Any]], preview_limit: int) -> str:
+    """Build lightweight aggregate stats to reduce summary bias from truncated previews."""
+    total_rows = len(rows)
+    if total_rows == 0:
+        return "ไม่พบข้อมูล"
+
+    if total_rows <= preview_limit:
+        return "ข้อมูลมีจำนวนไม่เกินช่วงที่แสดงตัวอย่าง จึงไม่จำเป็นต้องคำนวณสถิติเพิ่มเติม"
+
+    numeric_cols: dict[str, list[float]] = {}
+    for row in rows:
+        for key, value in row.items():
+            if isinstance(value, bool):
+                continue
+            if isinstance(value, numbers.Number):
+                numeric_cols.setdefault(key, []).append(float(value))
+
+    summary: dict[str, Any] = {
+        "preview_row_count": min(total_rows, preview_limit),
+        "total_row_count": total_rows,
+    }
+
+    if numeric_cols:
+        summary["numeric_aggregates"] = {
+            col: {
+                "count": len(values),
+                "sum": round(sum(values), 4),
+                "avg": round(sum(values) / len(values), 4) if values else None,
+                "min": round(min(values), 4) if values else None,
+                "max": round(max(values), 4) if values else None,
+            }
+            for col, values in numeric_cols.items()
+            if values
+        }
+    else:
+        summary["numeric_aggregates"] = "ไม่พบคอลัมน์ตัวเลขสำหรับคำนวณสถิติ"
+
+    return json.dumps(summary, ensure_ascii=False, default=str)
 
 
 def _try_vanna(

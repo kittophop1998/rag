@@ -14,12 +14,13 @@ from typing import Dict, Tuple
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from app.config import settings
 from app.user_store import UserRole, verify_user_password
 
 _security = HTTPBearer(auto_error=False)
 # token -> (expires_at, username, role)
 _active_tokens: Dict[str, Tuple[datetime, str, UserRole]] = {}
-TOKEN_TTL_HOURS = 24
+TOKEN_TTL = timedelta(hours=settings.auth_token_ttl_hours)
 
 
 @dataclass
@@ -40,7 +41,7 @@ def create_token(username: str, password: str) -> UserSession:
         )
     token = secrets.token_urlsafe(32)
     _active_tokens[token] = (
-        datetime.utcnow() + timedelta(hours=TOKEN_TTL_HOURS),
+        datetime.utcnow() + TOKEN_TTL,
         user.username,
         user.role,
     )
@@ -73,7 +74,7 @@ def require_auth(
     expires, username, role = entry
     # Sliding window — extend TTL on each authenticated request
     _active_tokens[token] = (
-        datetime.utcnow() + timedelta(hours=TOKEN_TTL_HOURS),
+        datetime.utcnow() + TOKEN_TTL,
         username,
         role,
     )

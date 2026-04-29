@@ -2,21 +2,24 @@
 FastAPI entry point.
 
 Endpoints:
-* ``GET  /``                                    -> Chat web UI (static HTML).
-* ``POST /api/chat``                            -> Ask a question, return JSON answer + sources.
-* ``GET  /api/chat/stream``                     -> Stream answer via SSE.
-* ``POST /api/reindex``                         -> Rebuild the ChromaDB RAG index (admin only).
-* ``POST /api/upload``                          -> Upload PDF (admin only).
-* ``GET  /healthz``                             -> Liveness probe.
-* ``POST /api/db-query``                        -> NL → SQL via Vanna.ai + LLM fallback.
-* ``POST /api/vanna/train``                     -> Add Vanna training data (admin only).
-* ``GET  /api/vanna/training-data``             -> List Vanna training entries (admin only).
-* ``DELETE /api/vanna/training-data/{id}``      -> Remove Vanna training entry (admin only).
-* ``POST /api/vanna/train-connection/{conn_id}``-> Train Vanna on a DB schema (admin only).
-* ``GET  /api/users``                           -> List users (admin only).
-* ``POST /api/users``                           -> Create user (admin only).
-* ``PATCH /api/users/{id}``                     -> Update user (admin only).
-* ``DELETE /api/users/{id}``                    -> Delete user (admin only).
+* ``GET  /``                                         -> Chat web UI (static HTML).
+* ``POST /api/chat``                                 -> Ask a question, return JSON answer + sources.
+* ``GET  /api/chat/stream``                          -> Stream answer via SSE.
+* ``POST /api/reindex``                              -> Rebuild the ChromaDB RAG index (admin only).
+* ``POST /api/upload``                               -> Upload PDF (admin only).
+* ``GET  /healthz``                                  -> Liveness probe.
+* ``POST /api/db-query``                             -> NL → SQL via Vanna.ai + LLM fallback.
+* ``POST /api/settings/databases/{id}/index``        -> Index DB data into ChromaDB (admin only).
+* ``GET  /api/settings/databases/{id}/index-status`` -> Get DB index status (admin only).
+* ``DELETE /api/settings/databases/{id}/index``      -> Delete DB index (admin only).
+* ``POST /api/vanna/train``                          -> Add Vanna training data (admin only).
+* ``GET  /api/vanna/training-data``                  -> List Vanna training entries (admin only).
+* ``DELETE /api/vanna/training-data/{id}``           -> Remove Vanna training entry (admin only).
+* ``POST /api/vanna/train-connection/{conn_id}``     -> Train Vanna on a DB schema (admin only).
+* ``GET  /api/users``                                -> List users (admin only).
+* ``POST /api/users``                                -> Create user (admin only).
+* ``PATCH /api/users/{id}``                          -> Update user (admin only).
+* ``DELETE /api/users/{id}``                         -> Delete user (admin only).
 """
 
 from __future__ import annotations
@@ -368,6 +371,138 @@ async def api_delete_database(conn_id: str, _: UserSession = Depends(require_adm
     if not delete_connection(conn_id):
         raise HTTPException(status_code=404, detail="ไม่พบ Database ที่ระบุ")
     return {"status": "ok"}
+
+
+# ── DB Auto-Index (admin only) ─────────────────────────────────────────────────
+@app.post("/api/settings/databases/{conn_id}/index", tags=["settings"])
+async def api_index_database(conn_id: str, _: UserSession = Depends(require_admin)):
+    """Start indexing all table data from a DB connection into ChromaDB (admin only).
+
+    Indexing runs in a background thread.  Poll the status endpoint to track progress.
+    """
+    from app.db_indexer import get_index_status, index_database  # noqa: PLC0415
+
+    conn = get_connection(conn_id)
+    if not conn:
+        raise HTTPException(status_code=404, detail="ไม่พบ Database connection ที่ระบุ")
+    if not conn.enabled:
+        raise HTTPException(status_code=400, detail="Database connection นี้ถูกปิดใช้งาน")
+
+    current = get_index_status(conn_id)
+    if current.get("status") == "indexing":
+        return {"status": "indexing", "message": "กำลัง Index อยู่แล้ว"}
+
+    index_database(conn_id, conn.db_type, conn.url, conn.name)
+    return {"status": "indexing", "message": "เริ่ม Index ข้อมูล..."}
+
+
+@app.get("/api/settings/databases/{conn_id}/index-status", tags=["settings"])
+async def api_index_status(conn_id: str, _: UserSession = Depends(require_admin)):
+    """Return the current index status for a DB connection (admin only)."""
+    from app.db_indexer import get_index_status  # noqa: PLC0415
+
+    conn = get_connection(conn_id)
+    if not conn:
+        raise HTTPException(status_code=404, detail="ไม่พบ Database connection ที่ระบุ")
+    return get_index_status(conn_id)
+
+
+@app.delete("/api/settings/databases/{conn_id}/index", tags=["settings"])
+async def api_delete_db_index(conn_id: str, _: UserSession = Depends(require_admin)):
+    """Remove the ChromaDB index for a DB connection (admin only)."""
+    from app.db_indexer import delete_index  # noqa: PLC0415
+
+    conn = get_connection(conn_id)
+    if not conn:
+        raise HTTPException(status_code=404, detail="ไม่พบ Database connection ที่ระบุ")
+    delete_index(conn_id)
+    return {"status": "ok", "message": "ลบ Index แล้ว"}
+
+
+# ── Per-group index control ────────────────────────────────────────────────────
+class GroupEnabledUpdate(BaseModel):
+    enabled: bool
+
+
+@app.get("/api/settings/databases/{conn_id}/groups", tags=["settings"])
+async def api_list_group_states(conn_id: str, _: UserSession = Depends(require_admin)):
+    """Return enabled/disabled state for every known group of a connection."""
+    from app.chat_store import get_group_states  # noqa: PLC0415
+    from app.db_indexer import get_index_status  # noqa: PLC0415
+
+    conn = get_connection(conn_id)
+    if not conn:
+        raise HTTPException(status_code=404, detail="ไม่พบ Database connection ที่ระบุ")
+
+    status = get_index_status(conn_id)
+    known_groups: list[str] = status.get("groups") or []
+    db_states = get_group_states(conn_id)
+
+    result = []
+    for g in known_groups:
+        row = db_states.get(g, {"enabled": True, "last_indexed_at": None})
+        result.append({
+            "conn_id": conn_id,
+            "group_name": g,
+            "enabled": row["enabled"],
+            "last_indexed_at": row["last_indexed_at"],
+        })
+    return {"groups": result}
+
+
+@app.patch("/api/settings/databases/{conn_id}/groups/{group_name}", tags=["settings"])
+async def api_set_group_enabled(
+    conn_id: str,
+    group_name: str,
+    data: GroupEnabledUpdate,
+    _: UserSession = Depends(require_admin),
+):
+    """Enable or disable a specific group for RAG queries."""
+    from app.chat_store import set_group_enabled  # noqa: PLC0415
+
+    conn = get_connection(conn_id)
+    if not conn:
+        raise HTTPException(status_code=404, detail="ไม่พบ Database connection ที่ระบุ")
+    set_group_enabled(conn_id, group_name, data.enabled)
+    return {"conn_id": conn_id, "group_name": group_name, "enabled": data.enabled}
+
+
+@app.post("/api/settings/databases/{conn_id}/groups/{group_name}/index", tags=["settings"])
+async def api_index_group(
+    conn_id: str,
+    group_name: str,
+    _: UserSession = Depends(require_admin),
+):
+    """Re-index a single group's tables into the existing Chroma collection."""
+    from app.db_indexer import get_group_index_status, index_group  # noqa: PLC0415
+
+    conn = get_connection(conn_id)
+    if not conn:
+        raise HTTPException(status_code=404, detail="ไม่พบ Database connection ที่ระบุ")
+    if not conn.enabled:
+        raise HTTPException(status_code=400, detail="Database connection นี้ถูกปิดใช้งาน")
+
+    current = get_group_index_status(conn_id, group_name)
+    if current.get("status") == "indexing":
+        return {"status": "indexing", "message": "กำลัง Index กลุ่มนี้อยู่แล้ว"}
+
+    index_group(conn_id, group_name, conn.db_type, conn.url, conn.name)
+    return {"status": "indexing", "message": f"เริ่ม Re-index กลุ่ม '{group_name}'..."}
+
+
+@app.get("/api/settings/databases/{conn_id}/groups/{group_name}/index-status", tags=["settings"])
+async def api_group_index_status(
+    conn_id: str,
+    group_name: str,
+    _: UserSession = Depends(require_admin),
+):
+    """Poll the reindex status of a single group."""
+    from app.db_indexer import get_group_index_status  # noqa: PLC0415
+
+    conn = get_connection(conn_id)
+    if not conn:
+        raise HTTPException(status_code=404, detail="ไม่พบ Database connection ที่ระบุ")
+    return get_group_index_status(conn_id, group_name)
 
 
 # ── URL Source Settings (admin only) ──────────────────────────────────────────
