@@ -1,5 +1,5 @@
 @echo off
-REM Convenience script to start the Company RAG service in dev mode (Windows).
+REM Convenience script to start the Ruangthong RAG service in dev mode (Windows).
 setlocal ENABLEDELAYEDEXPANSION
 
 cd /d "%~dp0"

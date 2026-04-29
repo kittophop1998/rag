@@ -32,6 +32,15 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.auth import UserSession, create_token, require_admin, require_auth, revoke_token
+from app.chat_store import (
+    add_message as db_add_message,
+    create_session as db_create_session,
+    delete_session as db_delete_session,
+    get_messages as db_get_messages,
+    init_db,
+    list_sessions as db_list_sessions,
+    migrate_json_to_db,
+)
 from app.config import settings
 from app.db_settings import (
     DatabaseConnectionCreate,
@@ -77,7 +86,7 @@ logger = logging.getLogger("rag")
 # App
 # ---------------------------------------------------------------------------
 app = FastAPI(
-    title="Company RAG",
+    title="Ruangthong RAG",
     description="ระบบถาม-ตอบเอกสารภายในบริษัท ด้วย FastAPI + LangChain + OpenAI + ChromaDB + Vanna.ai",
     version="2.0.0",
 )
@@ -115,6 +124,16 @@ class SourceItem(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     sources: List[SourceItem] = []
+
+
+class SessionCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+
+
+class MessageCreate(BaseModel):
+    role: str = Field(..., pattern="^(user|bot)$")
+    content: str = Field(..., min_length=1)
+    sources: List[dict] = []
 
 
 class DBQueryRequest(BaseModel):
@@ -254,6 +273,49 @@ async def api_delete_user(user_id: str, session: UserSession = Depends(require_a
         raise HTTPException(status_code=400, detail="ไม่สามารถลบบัญชีของตัวเองได้")
     if not delete_user(user_id):
         raise HTTPException(status_code=404, detail="ไม่พบผู้ใช้ที่ระบุ")
+    return {"status": "ok"}
+
+
+# ── Chat Sessions (all authenticated users) ───────────────────────────────────
+@app.get("/api/sessions", tags=["chat"])
+async def api_list_sessions(session: UserSession = Depends(require_auth)):
+    """Return all chat sessions for the logged-in user, newest first."""
+    return {"sessions": db_list_sessions(session.username)}
+
+
+@app.post("/api/sessions", tags=["chat"])
+async def api_create_session(data: SessionCreate, session: UserSession = Depends(require_auth)):
+    """Create a new chat session for the logged-in user."""
+    return db_create_session(session.username, data.title.strip())
+
+
+@app.get("/api/sessions/{session_id}/messages", tags=["chat"])
+async def api_get_messages(session_id: str, session: UserSession = Depends(require_auth)):
+    """Return all messages in a session (must belong to the logged-in user)."""
+    msgs = db_get_messages(session_id, session.username)
+    if msgs is None:
+        raise HTTPException(status_code=404, detail="ไม่พบ session ที่ระบุ")
+    return {"messages": msgs}
+
+
+@app.post("/api/sessions/{session_id}/messages", tags=["chat"])
+async def api_add_message(
+    session_id: str,
+    data: MessageCreate,
+    session: UserSession = Depends(require_auth),
+):
+    """Append a message to a session (must belong to the logged-in user)."""
+    msg = db_add_message(session_id, session.username, data.role, data.content, data.sources or None)
+    if msg is None:
+        raise HTTPException(status_code=404, detail="ไม่พบ session ที่ระบุ")
+    return msg
+
+
+@app.delete("/api/sessions/{session_id}", tags=["chat"])
+async def api_delete_session(session_id: str, session: UserSession = Depends(require_auth)):
+    """Delete a session and all its messages (must belong to the logged-in user)."""
+    if not db_delete_session(session_id, session.username):
+        raise HTTPException(status_code=404, detail="ไม่พบ session ที่ระบุ")
     return {"status": "ok"}
 
 
@@ -602,11 +664,19 @@ async def api_vanna_train_connection(
 # ---------------------------------------------------------------------------
 @app.on_event("startup")
 async def on_startup() -> None:
-    logger.info("Starting Company RAG service (ChromaDB + Vanna.ai) ...")
+    logger.info("Starting Ruangthong RAG service (ChromaDB + Vanna.ai) ...")
 
+    # 1. Initialise / migrate DB schema
+    init_db()
+    logger.info("SQLite database initialised (chat.db).")
+
+    # 2. Migrate legacy JSON files → SQLite (idempotent — runs only when table is empty)
+    migrate_json_to_db()
+
+    # 3. Bootstrap default admin account
     bootstrap_default_admin(settings.admin_username, settings.admin_password)
     logger.info(
-        "Default admin bootstrapped (username: %s) — update via User Management.",
+        "Default admin ensured (username: %s) — manage users via User Management.",
         settings.admin_username,
     )
 

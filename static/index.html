@@ -4,12 +4,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Company RAG · ถาม-ตอบเอกสารบริษัท</title>
+  <title>Ruangthong RAG · ถาม-ตอบเอกสารบริษัท</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sarabun:wght@400;500;600;700&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
     rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=20260428b" />
+  <link rel="stylesheet" href="/static/style.css?v=20260429a" />
+  <meta name="theme-color" content="#0B0E14" />
   <link rel="icon"
     href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%A4%96%3C/text%3E%3C/svg%3E" />
 </head>
@@ -30,7 +32,7 @@
           <line x1="15" y1="9" x2="15.01" y2="9" stroke-width="3" />
         </svg>
       </div>
-      <h1 class="login-title">Company RAG</h1>
+      <h1 class="login-title">Ruangthong RAG</h1>
       <p class="login-sub">ระบบถาม-ตอบเอกสารภายในบริษัท</p>
 
       <form id="loginForm" class="login-form" autocomplete="off" novalidate>
@@ -78,7 +80,7 @@
         </button>
       </form>
 
-      <p class="login-footer-note">Company RAG v1.0.0</p>
+      <p class="login-footer-note">Ruangthong RAG v1.0.0</p>
     </div>
   </div>
 
@@ -100,7 +102,7 @@
                 <line x1="15" y1="9" x2="15.01" y2="9" stroke-width="3" />
               </svg>
             </div> -->
-            <span class="brand-name">Company RAG</span>
+            <span class="brand-name">Ruangthong RAG</span>
           </div>
           <button id="sidebarCollapseBtn" class="icon-btn" title="ซ่อน Sidebar" aria-label="ซ่อน Sidebar">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -229,15 +231,24 @@
       <!-- Empty state (shown when no messages) -->
       <div id="emptyState" class="empty-state">
         <div class="empty-icon">
-          <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
-            stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10" />
-            <path d="M8 14s1.5 2 4 2 4-2 4-2" />
-            <line x1="9" y1="9" x2="9.01" y2="9" stroke-width="3" />
-            <line x1="15" y1="9" x2="15.01" y2="9" stroke-width="3" />
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3v3" />
+            <path d="M12 18v3" />
+            <path d="M5.6 5.6l2.1 2.1" />
+            <path d="M16.3 16.3l2.1 2.1" />
+            <path d="M3 12h3" />
+            <path d="M18 12h3" />
+            <path d="M5.6 18.4l2.1-2.1" />
+            <path d="M16.3 7.7l2.1-2.1" />
+            <circle cx="12" cy="12" r="3.2" />
           </svg>
         </div>
-        <h1 class="empty-title">Company RAG</h1>
+        <span class="empty-online-chip">
+          <span class="empty-online-dot"></span>
+          ระบบพร้อมใช้งาน
+        </span>
+        <h1 class="empty-title">Ruangthong RAG</h1>
         <p class="empty-sub">ถามอะไรก็ได้เกี่ยวกับเอกสารของบริษัท<br>ระบบจะค้นหาคำตอบจากไฟล์ที่ Index ไว้เท่านั้น</p>
         <div class="suggestion-grid" id="suggestionGrid">
           <button class="suggestion-card" data-q="นโยบายบริษัทปี 2024 มีอะไรบ้าง?">
@@ -495,13 +506,15 @@
           <!-- Database List -->
           <div id="dbList" class="db-list">
             <div class="db-list-empty">
-              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
-                stroke-linecap="round" stroke-linejoin="round">
-                <ellipse cx="12" cy="5" rx="9" ry="3" />
-                <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+              <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <ellipse cx="12" cy="5" rx="9" ry="3" opacity=".55" />
+                <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" opacity=".75" />
                 <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+                <line x1="7" y1="9.4" x2="9" y2="9.4" stroke-width="1.2" opacity=".6" />
+                <line x1="7" y1="16" x2="11" y2="16" stroke-width="1.2" opacity=".4" />
               </svg>
-              <p>ยังไม่มีฐานข้อมูล<br>กด "เพิ่มฐานข้อมูล" เพื่อเริ่มต้น</p>
+              <p><strong>ยังไม่มีฐานข้อมูล</strong><br>กด "เพิ่มฐานข้อมูล" เพื่อเริ่มต้น</p>
             </div>
           </div>
 
@@ -566,13 +579,13 @@
           <!-- URL Source List -->
           <div id="urlList" class="db-list">
             <div class="db-list-empty">
-              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
-                stroke-linecap="round" stroke-linejoin="round">
+              <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <circle cx="12" cy="12" r="10" />
-                <line x1="2" y1="12" x2="22" y2="12" />
-                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                <line x1="2" y1="12" x2="22" y2="12" opacity=".65" />
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" opacity=".8" />
               </svg>
-              <p>ยังไม่มี URL แหล่งข้อมูล<br>กด "เพิ่ม URL" เพื่อเริ่มต้น</p>
+              <p><strong>ยังไม่มี URL แหล่งข้อมูล</strong><br>กด "เพิ่ม URL" เพื่อเริ่มต้น</p>
             </div>
           </div>
 
@@ -639,10 +652,12 @@
           <!-- User List -->
           <div id="userList" class="db-list">
             <div class="db-list-empty">
-              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
-                stroke-linecap="round" stroke-linejoin="round">
+              <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
                 <circle cx="9" cy="7" r="4" />
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87" opacity=".6" />
+                <path d="M16 3.13a4 4 0 0 1 0 7.75" opacity=".6" />
               </svg>
               <p>กำลังโหลด...</p>
             </div>
@@ -658,7 +673,7 @@
   <!-- Toast notifications -->
   <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="true"></div>
 
-  <script src="/static/script.js?v=20260428b"></script>
+  <script src="/static/script.js?v=20260429b"></script>
 </body>
 
 </html>

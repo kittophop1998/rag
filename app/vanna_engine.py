@@ -14,44 +14,18 @@ Architecture:
   - ChromaDB_VectorStore  : persists training data in ``chroma_base_dir/vanna/``
   - OpenAI_Chat           : uses the same ChatOpenAI model as the rest of the app
 
-Directory layout (within the shared ChromaDB root):
-    chroma_base_dir/
-        rag/        ← document RAG (managed by indexer.py)
-        vanna/      ← Vanna SQL training data  (managed here)
+Trained-connection state is stored in the ``db_connections.vanna_trained``
+column of ``chat.db`` (previously ``vanna_trained.json``).
 """
 
 from __future__ import annotations
 
-import json
 import logging
-from pathlib import Path
 from typing import Any
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
-
-_TRAINED_IDS_FILE = Path("vanna_trained.json")
-"""Flat JSON file that records which DB connection IDs have had their schema
-trained into Vanna's ChromaDB.  Lives next to the app working directory."""
-
-
-# ---------------------------------------------------------------------------
-# Persistence helpers for tracking which DB connections have been schema-trained
-# ---------------------------------------------------------------------------
-def _load_trained_ids() -> set[str]:
-    if _TRAINED_IDS_FILE.exists():
-        try:
-            return set(json.loads(_TRAINED_IDS_FILE.read_text(encoding="utf-8")))
-        except Exception:  # noqa: BLE001
-            return set()
-    return set()
-
-
-def _save_trained_ids(ids: set[str]) -> None:
-    _TRAINED_IDS_FILE.write_text(
-        json.dumps(sorted(ids), ensure_ascii=False), encoding="utf-8"
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +42,7 @@ def _extract_ddl(db_type: str, db_url: str) -> list[str]:
     try:
         from sqlalchemy import create_engine, MetaData  # type: ignore[import-untyped]
         from sqlalchemy.schema import CreateTable  # type: ignore[import-untyped]
-        from app.db_inspector import _normalize_sql_url  # internal but stable
+        from app.db_inspector import _normalize_sql_url  # internal but stable  # noqa: PLC0415
 
         engine = create_engine(_normalize_sql_url(db_url), pool_pre_ping=True)
         meta = MetaData()
@@ -98,7 +72,6 @@ class VannaEngine:
 
     def __init__(self) -> None:
         self._vn: Any | None = None
-        self._trained_ids: set[str] = _load_trained_ids()
 
     # -- Lazy initialisation -------------------------------------------------
     @property
@@ -166,15 +139,24 @@ class VannaEngine:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Vanna doc train failed: %s", exc)
 
-        self._trained_ids.add(conn_id)
-        _save_trained_ids(self._trained_ids)
+        # Persist trained state to SQLite
+        try:
+            from app.db_settings import mark_vanna_trained  # noqa: PLC0415
+            mark_vanna_trained(conn_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not persist vanna_trained flag: %s", exc)
+
         logger.info(
             "Vanna trained on connection '%s' — %d item(s) added", conn_id, count
         )
         return count
 
     def is_trained(self, conn_id: str) -> bool:
-        return conn_id in self._trained_ids
+        try:
+            from app.db_settings import is_vanna_trained  # noqa: PLC0415
+            return is_vanna_trained(conn_id)
+        except Exception:  # noqa: BLE001
+            return False
 
     def add_sql_example(self, question: str, sql: str) -> str:
         """Add an example question → SQL pair to Vanna's training data."""
@@ -214,7 +196,11 @@ class VannaEngine:
 
     def get_trained_connections(self) -> list[str]:
         """Return the list of DB connection IDs that have been schema-trained."""
-        return sorted(self._trained_ids)
+        try:
+            from app.db_settings import get_trained_connection_ids  # noqa: PLC0415
+            return sorted(get_trained_connection_ids())
+        except Exception:  # noqa: BLE001
+            return []
 
     # -- SQL Generation ------------------------------------------------------
     def generate_sql(self, question: str) -> str | None:

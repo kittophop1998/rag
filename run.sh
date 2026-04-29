@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Convenience script to start the Company RAG service in dev mode.
+# Convenience script to start the Ruangthong RAG service in dev mode.
 set -euo pipefail
 
 cd "$(dirname "$0")"

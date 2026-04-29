@@ -1,5 +1,5 @@
 """
-Indexing pipeline for the company RAG — backed by ChromaDB.
+Indexing pipeline for the Ruangthong RAG — backed by ChromaDB.
 
 Steps performed by :func:`build_or_load_vectorstore`:
 

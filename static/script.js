@@ -1,10 +1,10 @@
 /**
- * Company RAG — Frontend
+ * Ruangthong RAG — Frontend
  *
  * Architecture:
  *   Auth     → Login / logout / token management
  *   API      → All HTTP / SSE calls (isolated; easy to swap backend)
- *   Storage  → Chat session persistence via localStorage
+ *   Storage  → Chat session persistence via localStorage (per logged-in user)
  *   md       → Lightweight inline Markdown renderer
  *   UI       → Pure DOM helpers (no business logic)
  *   App      → Orchestrates everything; event binding
@@ -27,10 +27,10 @@ const CFG = {
   DB_QUERY_URL:  '/api/db-query',
   URLS_URL:      '/api/settings/urls',
   USERS_URL:     '/api/users',
-  STORAGE_KEY:   'rag_sessions_v2',
   TOKEN_KEY:     'rag_auth_token',
   ROLE_KEY:      'rag_auth_role',
   USER_KEY:      'rag_auth_user',
+  SESSIONS_URL:  '/api/sessions',
   MAX_SESSIONS:  60,
   TITLE_MAX_LEN: 46,
 };
@@ -367,20 +367,72 @@ const API = {
     if (!r.ok) throw new Error(json.detail || `HTTP ${r.status}`);
     return json;
   },
+
+  // ── Chat sessions (server-side, per user) ────────────────────
+  async listSessions() {
+    const r = await fetch(CFG.SESSIONS_URL, { headers: Auth.headers() });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  },
+
+  async createSession(title) {
+    const r = await fetch(CFG.SESSIONS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...Auth.headers() },
+      body: JSON.stringify({ title }),
+    });
+    const json = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(json.detail || `HTTP ${r.status}`);
+    return json;
+  },
+
+  async getMessages(sessionId) {
+    const r = await fetch(`${CFG.SESSIONS_URL}/${sessionId}/messages`, { headers: Auth.headers() });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  },
+
+  async addMessage(sessionId, role, content, sources) {
+    const r = await fetch(`${CFG.SESSIONS_URL}/${sessionId}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...Auth.headers() },
+      body: JSON.stringify({ role, content, sources: sources || [] }),
+    });
+    const json = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(json.detail || `HTTP ${r.status}`);
+    return json;
+  },
+
+  async deleteSession(sessionId) {
+    const r = await fetch(`${CFG.SESSIONS_URL}/${sessionId}`, {
+      method: 'DELETE',
+      headers: Auth.headers(),
+    });
+    const json = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(json.detail || `HTTP ${r.status}`);
+    return json;
+  },
 };
 
 /* ================================================================
-   STORAGE  –  Chat session persistence
-   Session schema: { id, title, createdAt, messages: [] }
+   STORAGE  –  Chat session persistence (server-side SQLite, per user)
+   Session schema: { id, title, createdAt }
    Message schema: { role: 'user'|'bot', content, sources?, ts }
+   All methods are async — they proxy to the backend /api/sessions API.
    ================================================================ */
 const Store = {
   _sessions: null,
 
-  all() {
+  /** Drop in-memory session list cache (call after login / logout). */
+  invalidate() {
+    this._sessions = null;
+  },
+
+  async all() {
     if (!this._sessions) {
       try {
-        this._sessions = JSON.parse(localStorage.getItem(CFG.STORAGE_KEY) || '[]');
+        const data = await API.listSessions();
+        this._sessions = data.sessions || [];
       } catch {
         this._sessions = [];
       }
@@ -388,47 +440,21 @@ const Store = {
     return this._sessions;
   },
 
-  save() {
-    try {
-      localStorage.setItem(CFG.STORAGE_KEY, JSON.stringify(this._sessions));
-    } catch { /* storage full – ignore */ }
-  },
-
-  create(firstMessage) {
-    const session = {
-      id: Date.now().toString(36) + Math.random().toString(36).slice(2),
-      title: firstMessage.slice(0, CFG.TITLE_MAX_LEN) + (firstMessage.length > CFG.TITLE_MAX_LEN ? '…' : ''),
-      createdAt: Date.now(),
-      messages: [],
-    };
-    this.all().unshift(session);
-    if (this._sessions.length > CFG.MAX_SESSIONS) this._sessions.pop();
-    this.save();
+  async create(firstMessage) {
+    const title = firstMessage.slice(0, CFG.TITLE_MAX_LEN)
+                + (firstMessage.length > CFG.TITLE_MAX_LEN ? '…' : '');
+    const session = await API.createSession(title);
+    if (this._sessions) this._sessions.unshift(session);
     return session;
   },
 
-  get(id) {
-    return this.all().find(s => s.id === id) || null;
+  async addMessage(sessionId, msg) {
+    await API.addMessage(sessionId, msg.role, msg.content, msg.sources || []);
   },
 
-  addMessage(sessionId, msg) {
-    const s = this.get(sessionId);
-    if (!s) return;
-    s.messages.push({ ...msg, ts: Date.now() });
-    this.save();
-  },
-
-  updateBotMessage(sessionId, content, sources) {
-    const s = this.get(sessionId);
-    if (!s) return;
-    const last = [...s.messages].reverse().find(m => m.role === 'bot');
-    if (last) { last.content = content; last.sources = sources; }
-    this.save();
-  },
-
-  delete(id) {
-    this._sessions = this.all().filter(s => s.id !== id);
-    this.save();
+  async delete(id) {
+    await API.deleteSession(id);
+    if (this._sessions) this._sessions = this._sessions.filter(s => s.id !== id);
   },
 };
 
@@ -526,10 +552,10 @@ class App {
       this._bindLogin();
       return;
     }
-    this._launch();
+    await this._launch();
   }
 
-  _launch() {
+  async _launch() {
     showApp();
     this._applyRoleVisibility();
     this._updateUserDisplay();
@@ -539,7 +565,7 @@ class App {
     this._bindSettings();
     this._bindKnowledgeBase();
     this._bindSuggestions();
-    this._renderHistory();
+    await this._renderHistory();
     if (Auth.isAdmin()) this._loadDocs();
     $('chatInput').focus();
   }
@@ -600,7 +626,8 @@ class App {
 
       try {
         await Auth.login(username, password);
-        this._launch();
+        Store.invalidate();
+        await this._launch();
         $('loginPassword').value = '';
       } catch (err) {
         errEl.textContent = err.message || 'เข้าสู่ระบบไม่สำเร็จ';
@@ -654,12 +681,13 @@ class App {
       });
     }
 
-    $('newChatBtn').addEventListener('click', () => {
-      this._startNewChat();
+    $('newChatBtn').addEventListener('click', async () => {
+      await this._startNewChat();
       $('sidebar').classList.remove('mobile-open');
     });
 
     $('logoutBtn').addEventListener('click', async () => {
+      Store.invalidate();
       await Auth.logout();
       showLogin();
       this._bindLogin();
@@ -667,12 +695,14 @@ class App {
   }
 
   /* ── Chat History ───────────────────────────────────────────── */
-  _renderHistory() {
+  async _renderHistory() {
     const container = $('chatHistory');
-    const sessions = Store.all();
+    const sessions = await Store.all();
 
     if (!sessions.length) {
       container.innerHTML = '<p class="history-empty">ยังไม่มีประวัติการสนทนา</p>';
+      container.onclick = null;
+      container.onkeydown = null;
       return;
     }
 
@@ -699,54 +729,58 @@ class App {
 
     container.innerHTML = html;
 
-    container.addEventListener('click', e => {
+    container.onclick = async e => {
       const delBtn = e.target.closest('[data-del]');
-      if (delBtn) { e.stopPropagation(); this._deleteSession(delBtn.dataset.del); return; }
+      if (delBtn) { e.stopPropagation(); await this._deleteSession(delBtn.dataset.del); return; }
       const item = e.target.closest('[data-id]');
-      if (item) this._loadSession(item.dataset.id);
-    });
+      if (item) await this._loadSession(item.dataset.id);
+    };
 
-    container.addEventListener('keydown', e => {
+    container.onkeydown = async e => {
       if (e.key === 'Enter') {
         const item = e.target.closest('[data-id]');
-        if (item) this._loadSession(item.dataset.id);
+        if (item) await this._loadSession(item.dataset.id);
       }
-    });
+    };
   }
 
-  _startNewChat() {
+  async _startNewChat() {
     this.currentSessionId = null;
     this._clearMessages();
     this._showEmptyState();
-    this._renderHistory();
+    await this._renderHistory();
     $('chatInput').focus();
   }
 
-  _loadSession(id) {
-    const session = Store.get(id);
-    if (!session) return;
+  async _loadSession(id) {
     this.currentSessionId = id;
     this._clearMessages();
     this._hideEmptyState();
 
-    for (const msg of session.messages) {
-      if (msg.role === 'user') {
-        this._appendUserBubble(msg.content);
-      } else {
-        const { bubble } = this._createBotBubble();
-        bubble.innerHTML = md(msg.content);
-        if (msg.sources?.length) this._appendSources(bubble.parentElement, msg.sources);
+    try {
+      const data = await API.getMessages(id);
+      for (const msg of (data.messages || [])) {
+        if (msg.role === 'user') {
+          this._appendUserBubble(msg.content);
+        } else {
+          const { bubble } = this._createBotBubble();
+          bubble.innerHTML = md(msg.content);
+          if (msg.sources?.length) this._appendSources(bubble.parentElement, msg.sources);
+        }
       }
+    } catch {
+      toast('โหลดประวัติการสนทนาไม่สำเร็จ', 'error');
     }
-    this._renderHistory();
+
+    await this._renderHistory();
     this._scrollToBottom();
     $('sidebar').classList.remove('mobile-open');
   }
 
-  _deleteSession(id) {
-    if (id === this.currentSessionId) this._startNewChat();
-    Store.delete(id);
-    this._renderHistory();
+  async _deleteSession(id) {
+    if (id === this.currentSessionId) await this._startNewChat();
+    await Store.delete(id);
+    await this._renderHistory();
   }
 
   /* ── Mode Toggle (RAG ↔ DB Query) ──────────────────────────── */
@@ -988,9 +1022,9 @@ class App {
     $('sendBtn').disabled = true;
 
     if (!this.currentSessionId) {
-      const session = Store.create(question);
+      const session = await Store.create(question);
       this.currentSessionId = session.id;
-      this._renderHistory();
+      await this._renderHistory();
     }
 
     this._hideEmptyState();
@@ -1038,9 +1072,9 @@ class App {
     $('sendBtn').disabled = true;
 
     if (!this.currentSessionId) {
-      const session = Store.create(question);
+      const session = await Store.create(question);
       this.currentSessionId = session.id;
-      this._renderHistory();
+      await this._renderHistory();
     }
 
     this._hideEmptyState();
@@ -1095,7 +1129,7 @@ class App {
 
   _createBotBubble(showTyping = false) {
     const msgEl = document.createElement('div');
-    msgEl.className = 'message bot';
+    msgEl.className = 'message bot' + (showTyping ? ' is-thinking' : '');
 
     const avatarSvg = `
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1128,6 +1162,7 @@ class App {
 
     function finalize() {
       if (cursor) { cursor.remove(); cursor = null; }
+      msgEl.classList.remove('is-thinking');
     }
 
     return { msgEl, bubble, setContent, finalize };
@@ -1306,11 +1341,15 @@ class App {
         list.innerHTML = '<p class="docs-empty">ยังไม่มีไฟล์ PDF<br>กดอัปโหลดเพื่อเพิ่มเอกสาร</p>';
         return;
       }
-      list.innerHTML = data.documents.map(doc => `
+      list.innerHTML = data.documents.map(doc => {
+        const statusKey   = doc.indexed ? 'ready' : 'indexing';
+        const statusLabel = doc.indexed ? 'Ready' : 'Indexing';
+        return `
         <div class="doc-item" title="${esc(doc.name)} (${fmtBytes(doc.size)})">
           <span class="doc-item-name">📄 ${esc(doc.name)}</span>
-          <span class="doc-item-badge ${doc.indexed ? 'indexed' : 'pending'}">${doc.indexed ? 'Indexed' : 'Pending'}</span>
-        </div>`).join('');
+          <span class="doc-item-badge ${statusKey}">${statusLabel}</span>
+        </div>`;
+      }).join('');
     } catch {
       list.innerHTML = '<p class="docs-empty">โหลดรายการไม่สำเร็จ</p>';
     }
@@ -1336,6 +1375,10 @@ class App {
     const closeBtn = $('modalCloseBtn');
 
     const open = () => {
+      /* Reset inline forms each time modal opens — avoids stale visibility */
+      this._hideDbForm();
+      this._hideUrlForm();
+      this._hideUserForm();
       modal.classList.add('open');
       modal.removeAttribute('aria-hidden');
       this._loadDatabases();
@@ -1345,6 +1388,7 @@ class App {
       modal.setAttribute('aria-hidden', 'true');
       this._hideDbForm();
       this._hideUrlForm();
+      this._hideUserForm();
     };
 
     $('settingsBtn').addEventListener('click', () => open());
@@ -1367,6 +1411,10 @@ class App {
           panel.classList.add('active');
           panel.removeAttribute('aria-hidden');
         }
+        /* Collapse forms that belong to other tabs so state stays consistent */
+        if (tab.dataset.tab !== 'users')      this._hideUserForm();
+        if (tab.dataset.tab !== 'databases')  this._hideDbForm();
+        if (tab.dataset.tab !== 'urls')       this._hideUrlForm();
         if (tab.dataset.tab === 'databases') this._loadDatabases();
         if (tab.dataset.tab === 'urls')      this._loadUrlSources();
         if (tab.dataset.tab === 'users')     this._loadUsers();
@@ -1408,12 +1456,14 @@ class App {
       if (!dbs.length) {
         list.innerHTML = `
           <div class="db-list-empty">
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <ellipse cx="12" cy="5" rx="9" ry="3"/>
-              <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+            <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+              <ellipse cx="12" cy="5" rx="9" ry="3" opacity=".55"/>
+              <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" opacity=".75"/>
               <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+              <line x1="7" y1="9.4" x2="9" y2="9.4" stroke-width="1.2" opacity=".6"/>
+              <line x1="7" y1="16" x2="11" y2="16" stroke-width="1.2" opacity=".4"/>
             </svg>
-            <p>ยังไม่มีฐานข้อมูล<br>กด "เพิ่มฐานข้อมูล" เพื่อเริ่มต้น</p>
+            <p><strong>ยังไม่มีฐานข้อมูล</strong><br>กด "เพิ่มฐานข้อมูล" เพื่อเริ่มต้น</p>
           </div>`;
         return;
       }
@@ -1573,13 +1623,13 @@ class App {
       if (!sources.length) {
         list.innerHTML = `
           <div class="db-list-empty">
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+            <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"
               stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="10"/>
-              <line x1="2" y1="12" x2="22" y2="12"/>
-              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+              <line x1="2" y1="12" x2="22" y2="12" opacity=".65"/>
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" opacity=".8"/>
             </svg>
-            <p>ยังไม่มี URL แหล่งข้อมูล<br>กด "เพิ่ม URL" เพื่อเริ่มต้น</p>
+            <p><strong>ยังไม่มี URL แหล่งข้อมูล</strong><br>กด "เพิ่ม URL" เพื่อเริ่มต้น</p>
           </div>`;
         return;
       }
@@ -1735,10 +1785,12 @@ class App {
 
       if (!users.length) {
         list.innerHTML = `<div class="db-list-empty">
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
             <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87" opacity=".6"/>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75" opacity=".6"/>
           </svg>
-          <p>ยังไม่มีผู้ใช้งาน</p></div>`;
+          <p><strong>ยังไม่มีผู้ใช้งาน</strong></p></div>`;
         return;
       }
 

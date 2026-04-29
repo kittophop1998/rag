@@ -1,4 +1,4 @@
-# Convenience script to start the Company RAG service in dev mode (Windows / PowerShell).
+# Convenience script to start the Ruangthong RAG service in dev mode (Windows / PowerShell).
 $ErrorActionPreference = "Stop"
 
 Set-Location -Path $PSScriptRoot

@@ -14,6 +14,13 @@ documents/*
 !documents/.gitkeep
 
 
+# Legacy JSON config files (data now lives in SQLite)
 db_connections.json
 users.json
 url_sources.json
+vanna_trained.json
+users.json.bak
+
+# SQLite database (runtime data — not committed)
+data/chat.db
+chat.db

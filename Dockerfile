@@ -31,7 +31,7 @@ COPY app/      ./app/
 COPY static/   ./static/
 
 # Persistent data directories (mounted as volumes in production)
-RUN mkdir -p documents
+RUN mkdir -p documents data
 
 # Non-root user for security
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app

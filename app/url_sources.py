@@ -1,16 +1,18 @@
-"""Persistent storage for website URL source configurations."""
+"""Persistent storage for website URL source configurations — backed by SQLite.
+
+Previously stored in ``./url_sources.json``; data is automatically migrated
+to the ``url_sources`` table in ``chat.db`` on first startup.
+"""
 
 from __future__ import annotations
 
-import json
 import uuid
 from datetime import datetime
-from pathlib import Path
 from typing import List, Optional
 
 from pydantic import BaseModel
 
-_CONFIG_PATH = Path("./url_sources.json")
+from app.chat_store import _conn
 
 
 class UrlSource(BaseModel):
@@ -40,33 +42,46 @@ class UrlSourceUpdate(BaseModel):
     crawl_depth: Optional[int] = None
 
 
-def _load() -> List[UrlSource]:
-    if not _CONFIG_PATH.exists():
-        return []
-    try:
-        raw = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
-        return [UrlSource(**item) for item in raw]
-    except Exception:
-        return []
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+_SELECT = (
+    "SELECT id, name, url, description, enabled, crawl_depth, created_at, last_indexed_at "
+    "FROM url_sources"
+)
 
 
-def _save(sources: List[UrlSource]) -> None:
-    _CONFIG_PATH.write_text(
-        json.dumps([s.model_dump() for s in sources], ensure_ascii=False, indent=2),
-        encoding="utf-8",
+def _row_to_source(row) -> UrlSource:
+    return UrlSource(
+        id=row["id"],
+        name=row["name"],
+        url=row["url"],
+        description=row["description"],
+        enabled=bool(row["enabled"]),
+        crawl_depth=row["crawl_depth"],
+        created_at=row["created_at"],
+        last_indexed_at=row["last_indexed_at"],
     )
 
 
+# ---------------------------------------------------------------------------
+# Public CRUD API
+# ---------------------------------------------------------------------------
+
 def list_url_sources() -> List[UrlSource]:
-    return _load()
+    with _conn() as con:
+        rows = con.execute(f"{_SELECT} ORDER BY created_at").fetchall()
+    return [_row_to_source(r) for r in rows]
 
 
 def get_url_source(source_id: str) -> Optional[UrlSource]:
-    return next((s for s in _load() if s.id == source_id), None)
+    with _conn() as con:
+        row = con.execute(f"{_SELECT} WHERE id=?", (source_id,)).fetchone()
+    return _row_to_source(row) if row else None
 
 
 def add_url_source(data: UrlSourceCreate) -> UrlSource:
-    sources = _load()
     source = UrlSource(
         id=str(uuid.uuid4()),
         name=data.name,
@@ -76,37 +91,50 @@ def add_url_source(data: UrlSourceCreate) -> UrlSource:
         crawl_depth=data.crawl_depth,
         created_at=datetime.utcnow().isoformat(),
     )
-    sources.append(source)
-    _save(sources)
+    with _conn() as con:
+        con.execute(
+            "INSERT INTO url_sources"
+            "(id, name, url, description, enabled, crawl_depth, created_at, last_indexed_at)"
+            " VALUES (?,?,?,?,?,?,?,?)",
+            (
+                source.id, source.name, source.url, source.description,
+                int(source.enabled), source.crawl_depth,
+                source.created_at, source.last_indexed_at,
+            ),
+        )
     return source
 
 
 def update_url_source(source_id: str, data: UrlSourceUpdate) -> Optional[UrlSource]:
-    sources = _load()
-    for i, s in enumerate(sources):
-        if s.id == source_id:
-            patch = {k: v for k, v in data.model_dump().items() if v is not None}
-            updated = s.model_copy(update=patch)
-            sources[i] = updated
-            _save(sources)
-            return updated
-    return None
+    with _conn() as con:
+        row = con.execute(f"{_SELECT} WHERE id=?", (source_id,)).fetchone()
+        if not row:
+            return None
+        current = _row_to_source(row)
+        patch = {k: v for k, v in data.model_dump().items() if v is not None}
+        updated = current.model_copy(update=patch)
+        con.execute(
+            "UPDATE url_sources"
+            " SET name=?, url=?, description=?, enabled=?, crawl_depth=?"
+            " WHERE id=?",
+            (
+                updated.name, updated.url, updated.description,
+                int(updated.enabled), updated.crawl_depth, source_id,
+            ),
+        )
+    return updated
 
 
 def delete_url_source(source_id: str) -> bool:
-    sources = _load()
-    new_list = [s for s in sources if s.id != source_id]
-    if len(new_list) == len(sources):
-        return False
-    _save(new_list)
-    return True
+    with _conn() as con:
+        cur = con.execute("DELETE FROM url_sources WHERE id=?", (source_id,))
+    return cur.rowcount > 0
 
 
 def mark_url_indexed(source_id: str) -> None:
     """Update last_indexed_at timestamp for a URL source."""
-    sources = _load()
-    for i, s in enumerate(sources):
-        if s.id == source_id:
-            sources[i] = s.model_copy(update={"last_indexed_at": datetime.utcnow().isoformat()})
-            _save(sources)
-            return
+    with _conn() as con:
+        con.execute(
+            "UPDATE url_sources SET last_indexed_at=? WHERE id=?",
+            (datetime.utcnow().isoformat(), source_id),
+        )

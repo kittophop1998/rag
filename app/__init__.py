@@ -1,1 +1,1 @@
-"""Company RAG application package."""
+"""Ruangthong RAG application package."""

@@ -1,4 +1,4 @@
-# Company RAG (FastAPI + LangChain + OpenAI + ChromaDB)
+# Ruangthong RAG (FastAPI + LangChain + OpenAI + ChromaDB)
 
 ระบบถาม-ตอบเอกสารภายในบริษัทแบบ Retrieval-Augmented Generation พร้อม **หน้าเว็บแชท**, **Text-to-SQL**, และ **การจัดการผู้ใช้**
 
