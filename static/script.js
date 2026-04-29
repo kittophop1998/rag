@@ -541,6 +541,7 @@ class App {
     this._mode           = 'rag';   // 'rag' | 'db'
     this._selectedDbId   = null;    // selected DB connection id in db mode
     this._dbConnections  = [];      // cached list of enabled DB connections
+    this._eventsBound    = false;   // guard against duplicate event binding on re-login
   }
 
   /** Boot: check auth first, then bind events. */
@@ -559,12 +560,15 @@ class App {
     showApp();
     this._applyRoleVisibility();
     this._updateUserDisplay();
-    this._bindSidebar();
-    this._bindComposer();
-    this._bindModeToggle();
-    this._bindSettings();
-    this._bindKnowledgeBase();
-    this._bindSuggestions();
+    if (!this._eventsBound) {
+      this._bindSidebar();
+      this._bindComposer();
+      this._bindModeToggle();
+      this._bindSettings();
+      this._bindKnowledgeBase();
+      this._bindSuggestions();
+      this._eventsBound = true;
+    }
     await this._renderHistory();
     if (Auth.isAdmin()) this._loadDocs();
     $('chatInput').focus();
@@ -609,13 +613,15 @@ class App {
         : `<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>`;
     });
 
-    form.addEventListener('submit', async e => {
+    const onSubmit = async e => {
       e.preventDefault();
       errEl.textContent = '';
       const username = $('loginUsername').value.trim();
       const password = $('loginPassword').value;
       if (!username || !password) {
         errEl.textContent = 'กรุณากรอกชื่อผู้ใช้และรหัสผ่าน';
+        // Re-bind for next attempt since { once: true } removed listener on first call
+        form.addEventListener('submit', onSubmit, { once: true });
         return;
       }
 
@@ -633,12 +639,15 @@ class App {
         errEl.textContent = err.message || 'เข้าสู่ระบบไม่สำเร็จ';
         $('loginPassword').value = '';
         $('loginPassword').focus();
+        // Re-bind for retry after failed login
+        form.addEventListener('submit', onSubmit, { once: true });
       } finally {
         btn.disabled = false;
         $('loginBtnText').textContent = 'เข้าสู่ระบบ';
         $('loginSpinner').classList.add('hidden');
       }
-    });
+    };
+    form.addEventListener('submit', onSubmit, { once: true });
 
     // Enter on username → focus password
     $('loginUsername').addEventListener('keydown', e => {
