@@ -1790,7 +1790,10 @@ class App {
         const tipOneLine = tablesDetail ? `${line} — ${tablesDetail}` : line;
         const stateRow = groupStates[gName] || {};
         const enabled = stateRow.enabled !== false;
-        rows.push({ line, tipOneLine, tblCount: tables.length, enabled, connId: db.id, gName });
+        rows.push({
+          line, tipOneLine, tblCount: tables.length, enabled, connId: db.id, gName,
+          lastIndexedAt: stateRow.last_indexed_at || null,
+        });
       }
     }
     rows.sort((x, y) => cmp(x.line, y.line));
@@ -1818,6 +1821,7 @@ class App {
         </label>
         <span class="db-group-overview-line">${esc(r.line)}</span>
         ${r.tblCount ? `<span class="db-group-overview-n">${r.tblCount} ตาราง</span>` : ''}
+        ${r.lastIndexedAt ? `<span class="db-group-overview-n">ล่าสุด ${new Date(r.lastIndexedAt).toLocaleString('th-TH')}</span>` : ''}
         <button class="grp-rebuild-btn" data-conn="${esc(r.connId)}" data-gname="${esc(r.gName)}"
           title="Rebuild Index กลุ่มนี้">
           <span class="grp-rebuild-label">${rebuildSvg} Rebuild</span>
@@ -1874,19 +1878,35 @@ class App {
   }
 
   _pollGroupRebuild(connId, gName, btn, label, running) {
+    const startedAt = Date.now();
+    let warnedSlow = false;
     const poll = () => {
       API.getGroupIndexStatus(connId, gName).then(s => {
         if (s.status === 'indexing') {
-          if (running) running.textContent = `กำลัง Index... ${s.progress ? s.progress + '%' : ''}`;
+          const phase = s.phase ? ` [${s.phase}]` : '';
+          const prog = Number.isFinite(s.progress) ? ` ${s.progress}%` : '';
+          const msg = s.message ? ` - ${s.message}` : '';
+          if (running) running.textContent = `กำลัง Index${phase}${prog}${msg}`;
+          if (!warnedSlow && Date.now() - startedAt > 180000) {
+            warnedSlow = true;
+            toast(`Rebuild "${gName}" ใช้เวลานานกว่าปกติ แต่ระบบยังทำงานอยู่`, 'info', 5000);
+          }
           setTimeout(poll, 2500);
         } else {
           if (btn) { btn.disabled = false; }
           if (label) label.classList.remove('hidden');
           if (running) running.classList.add('hidden');
           if (s.status === 'done') {
-            toast(`Rebuild กลุ่ม "${gName}" สำเร็จ`, 'success', 3000);
+            const successAt = s.last_success_at ? ` (${new Date(s.last_success_at).toLocaleString('th-TH')})` : '';
+            toast(`Rebuild กลุ่ม "${gName}" สำเร็จ${successAt}`, 'success', 3000);
             // Refresh index status to update table_rows in overview
             API.getIndexStatus(connId).then(ns => this._applyIndexStatus(connId, ns)).catch(() => {});
+            API.listGroupStates(connId).then(r => {
+              const map = {};
+              (r.groups || []).forEach(g => { map[g.group_name] = g; });
+              this._dbGroupStates[connId] = map;
+              this._renderDbGroupOverview();
+            }).catch(() => {});
           } else if (s.status === 'error') {
             toast(`Rebuild "${gName}" ล้มเหลว: ${s.message}`, 'error');
           }

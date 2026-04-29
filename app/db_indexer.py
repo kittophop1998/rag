@@ -25,6 +25,7 @@ import logging
 import re
 import shutil
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -171,6 +172,44 @@ def _fetch_sql_tables(url: str) -> dict[str, list[dict]]:
         engine.dispose()
 
 
+def _fetch_sql_selected_tables(url: str, table_names: list[str]) -> dict[str, list[dict]]:
+    """Return rows for the requested SQL table names only."""
+    from sqlalchemy import MetaData, create_engine, select  # type: ignore[import-untyped]
+
+    selected = [t for t in dict.fromkeys(table_names) if t]
+    if not selected:
+        return {}
+
+    engine = create_engine(_normalize_sql_url(url), pool_pre_ping=True)
+    try:
+        meta = MetaData()
+        meta.reflect(bind=engine)
+
+        result: dict[str, list[dict]] = {}
+        with engine.connect() as conn:
+            for table_name in selected:
+                table = meta.tables.get(table_name)
+                if table is None:
+                    # Handle schema-qualified names reflected as "schema.table".
+                    table = next(
+                        (t for n, t in meta.tables.items() if n.endswith(f".{table_name}")),
+                        None,
+                    )
+                if table is None:
+                    logger.warning("Cannot find table '%s' while group indexing", table_name)
+                    result[table_name] = []
+                    continue
+                try:
+                    rows = conn.execute(select(table).limit(MAX_ROWS_PER_TABLE))
+                    result[table_name] = [_serialize_row(dict(r._mapping)) for r in rows]
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Cannot read table %s: %s", table_name, exc)
+                    result[table_name] = []
+        return result
+    finally:
+        engine.dispose()
+
+
 def _fetch_mongo_collections(url: str) -> dict[str, list[dict]]:
     """Return {collection_name: [doc_dict, ...]} for every MongoDB collection."""
     from pymongo import MongoClient  # type: ignore[import-untyped]
@@ -183,6 +222,37 @@ def _fetch_mongo_collections(url: str) -> dict[str, list[dict]]:
         db = client[db_name]
         result: dict[str, list[dict]] = {}
         for coll_name in db.list_collection_names():
+            docs = list(db[coll_name].find({}, limit=MAX_ROWS_PER_TABLE))
+            result[coll_name] = [
+                _serialize_row({k: v for k, v in doc.items() if k != "_id"})
+                for doc in docs
+            ]
+        return result
+    finally:
+        client.close()
+
+
+def _fetch_mongo_selected_collections(url: str, names: list[str]) -> dict[str, list[dict]]:
+    """Return rows for the requested MongoDB collections only."""
+    from pymongo import MongoClient  # type: ignore[import-untyped]
+
+    from app.db_inspector import _extract_mongo_dbname
+
+    selected = [n for n in dict.fromkeys(names) if n]
+    if not selected:
+        return {}
+
+    db_name = _extract_mongo_dbname(url)
+    client: MongoClient = MongoClient(url, serverSelectionTimeoutMS=5000)
+    try:
+        db = client[db_name]
+        existing = set(db.list_collection_names())
+        result: dict[str, list[dict]] = {}
+        for coll_name in selected:
+            if coll_name not in existing:
+                logger.warning("Cannot find collection '%s' while group indexing", coll_name)
+                result[coll_name] = []
+                continue
             docs = list(db[coll_name].find({}, limit=MAX_ROWS_PER_TABLE))
             result[coll_name] = [
                 _serialize_row({k: v for k, v in doc.items() if k != "_id"})
@@ -526,25 +596,43 @@ def get_group_index_status(conn_id: str, group_name: str) -> dict:
         s = _group_status.get(_gkey(conn_id, group_name))
     if s:
         return s.copy()
-    # Check meta.json for last_indexed_at hint
+    # Check meta.json for last successful group reindex timestamp.
     meta = _load_meta(conn_id) or {}
     gm = meta.get("group_map", {})
+    group_indexed_at = meta.get("group_indexed_at", {})
+    last_success_at = group_indexed_at.get(group_name)
     if group_name in gm:
-        return {"status": "idle", "message": ""}
-    return {"status": "idle", "message": ""}
+        return {"status": "idle", "message": "", "last_success_at": last_success_at}
+    return {"status": "idle", "message": "", "last_success_at": last_success_at}
 
 
 def _run_group_index(
     conn_id: str, group_name: str, db_type: str, db_url: str, conn_name: str
 ) -> None:
     key = _gkey(conn_id, group_name)
+    phase_started = time.perf_counter()
 
     def _gs(**kw: object) -> None:
+        from datetime import datetime, timezone  # noqa: PLC0415
+
         with _group_status_lock:
-            _group_status[key] = dict(kw)
+            payload = dict(kw)
+            payload.setdefault("updated_at", datetime.now(timezone.utc).isoformat())
+            _group_status[key] = payload
+
+    def _mark_phase(phase: str, *, message: str, progress: int) -> None:
+        nonlocal phase_started
+        now = time.perf_counter()
+        elapsed = now - phase_started
+        phase_started = now
+        logger.info(
+            "Group reindex phase [%s / %s] %s (+%.2fs): %s",
+            conn_name, group_name, phase, elapsed, message,
+        )
+        _gs(status="indexing", phase=phase, message=message, progress=progress)
 
     try:
-        _gs(status="indexing", message="กำลังอ่านข้อมูล...", progress=10)
+        _mark_phase(phase="init", message="กำลังเตรียมงาน...", progress=5)
 
         # Fetch only tables that belong to this group according to meta.json
         meta = _load_meta(conn_id)
@@ -555,35 +643,56 @@ def _run_group_index(
         if not group_tables:
             raise RuntimeError(f"ไม่พบกลุ่ม '{group_name}' ใน Index")
 
-        _gs(status="indexing", message=f"โหลด {len(group_tables)} ตาราง...", progress=25)
+        _mark_phase(
+            phase="fetch",
+            message=f"โหลดข้อมูลเฉพาะกลุ่ม ({len(group_tables)} ตาราง)...",
+            progress=20,
+        )
 
         t = db_type.lower()
         if t in _SQL_TYPES:
-            all_data = _fetch_sql_tables(db_url)
+            table_data = _fetch_sql_selected_tables(db_url, group_tables)
         elif t == "mongodb":
-            all_data = _fetch_mongo_collections(db_url)
+            table_data = _fetch_mongo_selected_collections(db_url, group_tables)
         else:
             raise ValueError(f"ไม่รองรับ db_type '{db_type}'")
 
-        table_data = {k: v for k, v in all_data.items() if k in group_tables}
         if not table_data:
             raise RuntimeError("ดึงข้อมูลตารางไม่ได้ (อาจถูกลบไปแล้ว)")
 
-        _gs(status="indexing", message="แปลงเป็น Documents...", progress=55)
+        _mark_phase(
+            phase="transform",
+            message=f"แปลงข้อมูล {len(table_data)} ตารางเป็น Documents...",
+            progress=45,
+        )
 
         all_docs: list[Document] = []
         group_rows = 0
         group_table_rows: dict[str, int] = {}
-        for tname, rows in table_data.items():
+        total_tables = len(table_data)
+        for idx, (tname, rows) in enumerate(table_data.items(), start=1):
             group_rows += len(rows)
             group_table_rows[tname] = len(rows)
             all_docs.extend(_rows_to_docs(tname, rows, group_name, conn_name))
+            table_progress = min(65, 45 + int((idx / max(total_tables, 1)) * 20))
+            _gs(
+                status="indexing",
+                phase="transform",
+                message=(
+                    f"แปลงตาราง {idx}/{total_tables} ({tname}) "
+                    f"สะสม {len(all_docs)} chunks"
+                ),
+                progress=table_progress,
+            )
 
         if not all_docs:
             raise RuntimeError("ไม่มีข้อมูลในตารางกลุ่มนี้")
 
-        _gs(status="indexing",
-            message=f"Embedding {len(all_docs)} chunks...", progress=70)
+        _mark_phase(
+            phase="load_store",
+            message=f"เตรียม Vector Store สำหรับ {len(all_docs)} chunks...",
+            progress=70,
+        )
 
         # Load existing Chroma store and delete old docs for this group then add new ones
         chroma_dir = _chroma_dir(conn_id)
@@ -600,6 +709,11 @@ def _run_group_index(
             collection_name=f"db_{conn_id}",
         )
         # Remove all existing docs for this group by metadata filter
+        _mark_phase(
+            phase="delete_old",
+            message=f"ลบข้อมูลเก่าของกลุ่ม '{group_name}'...",
+            progress=78,
+        )
         try:
             old = store.get(where={"group": group_name})
             if old and old.get("ids"):
@@ -608,9 +722,19 @@ def _run_group_index(
         except Exception as exc:  # noqa: BLE001
             logger.warning("Could not delete old docs for group '%s': %s", group_name, exc)
 
+        _mark_phase(
+            phase="write_new",
+            message=f"กำลัง Embed/เขียน {len(all_docs)} chunks ใหม่...",
+            progress=85,
+        )
         store.add_documents(all_docs)
 
         # Update meta.json: refresh table_rows for this group's tables
+        _mark_phase(
+            phase="save_meta",
+            message="บันทึก checkpoint และสรุปผล...",
+            progress=95,
+        )
         existing_meta = _load_meta(conn_id) or {}
         tr = existing_meta.get("table_rows", {})
         tr.update(group_table_rows)
@@ -630,6 +754,8 @@ def _run_group_index(
             status="done",
             message=f"สำเร็จ: {len(table_data)} ตาราง, {group_rows} rows, {len(all_docs)} chunks",
             progress=100,
+            phase="done",
+            last_success_at=now_iso,
         )
         logger.info(
             "Group reindex done [%s / %s]: %d tables, %d rows, %d chunks",
@@ -638,7 +764,7 @@ def _run_group_index(
 
     except Exception as exc:  # noqa: BLE001
         logger.exception("Group reindex failed [%s / %s]: %s", conn_id, group_name, exc)
-        _gs(status="error", message=f"ล้มเหลว: {exc}", progress=0)
+        _gs(status="error", phase="error", message=f"ล้มเหลว: {exc}", progress=0)
 
 
 def index_group(
