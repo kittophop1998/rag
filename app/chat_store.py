@@ -24,14 +24,21 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator, List, Optional
 
+from app.config import settings
+
 logger = logging.getLogger(__name__)
 
-_DB_PATH = Path("./data/chat.db")
+
+def _get_db_path() -> Path:
+    """Return the SQLite database path, ensuring the parent directory exists."""
+    p = settings.data_dir / "chat.db"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
 
 
 @contextmanager
 def _conn() -> Generator[sqlite3.Connection, None, None]:
-    con = sqlite3.connect(str(_DB_PATH), check_same_thread=False)
+    con = sqlite3.connect(str(_get_db_path()), check_same_thread=False)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA foreign_keys=ON")

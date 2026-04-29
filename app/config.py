@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     Sub-folders 'rag/' and 'vanna/' are created automatically.
     """
 
+    # ── Data directory ─────────────────────────────────────────────────────
+    data_dir: Path = Path("./data")
+    """Directory where SQLite database (chat.db) is stored.
+    Override via DATA_DIR env var to point at a persistent volume on the server.
+    Example: DATA_DIR=/var/lib/rag/data
+    """
+
     # ── RAG ───────────────────────────────────────────────────────────────
     documents_dir: Path = Path("./documents")
     chunk_size: int = 1_000

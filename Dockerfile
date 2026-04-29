@@ -31,7 +31,9 @@ COPY app/      ./app/
 COPY static/   ./static/
 
 # Persistent data directories (mounted as volumes in production)
-RUN mkdir -p documents data
+# chroma/ MUST be pre-created here so that when Docker mounts the named volume
+# at runtime, the directory is already owned by appuser (not root).
+RUN mkdir -p documents data chroma
 
 # Non-root user for security
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app

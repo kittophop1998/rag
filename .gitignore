@@ -8,10 +8,15 @@ venv/
 .vscode/
 .DS_Store
 
-# RAG artefacts (rebuilt from ./documents)
+# RAG artefacts (rebuilt from ./documents or re-indexed on first run)
 faiss_index/
 documents/*
 !documents/.gitkeep
+
+# ChromaDB runtime data — stored on disk but never committed
+# In production use Docker named volumes or set CHROMA_BASE_DIR to a
+# persistent path outside the project root.
+chroma/
 
 
 # Legacy JSON config files (data now lives in SQLite)
