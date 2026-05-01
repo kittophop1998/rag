@@ -1,34 +1,20 @@
 services:
-  rag:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: rag-app:latest
-    container_name: rag-app
-    restart: unless-stopped
+  backend:
+    build: .
+    image: internal-office-backend:latest
+    container_name: internal-office-backend
+    restart: always
 
     ports:
-      - "${PORT:-8004}:8004"
+      - "127.0.0.1:8004:8004"
 
     env_file:
       - .env
 
     volumes:
-      # ── Persistent data (survives container restarts / re-deploys) ──────────
-      - rag_documents:/app/documents          # uploaded PDF files
-      - rag_chroma:/app/chroma                # ChromaDB vectors (rag/ + vanna/)
-      - rag_data:/app/data                    # SQLite database (chat.db)
-
-      # ── One-time migration helpers (safe to remove after first startup) ─────
-      # If you have existing JSON config files from a previous version, mount
-      # them here so the server can auto-import them into SQLite on first run.
-      # Once migrated you'll see the log lines:
-      #   "Migrated N DB connection(s) from db_connections.json → SQLite."
-      #   "Migrated N URL source(s) from url_sources.json → SQLite."
-      # After that you can comment these lines out.
-      #- ./db_connections.json:/app/db_connections.json
-      #- ./url_sources.json:/app/url_sources.json
-      #- ./vanna_trained.json:/app/vanna_trained.json
+      - rag_documents:/app/documents
+      - rag_chroma:/app/chroma
+      - rag_data:/app/data
 
     healthcheck:
       test: ["CMD", "python", "-c",
@@ -47,4 +33,4 @@ services:
 volumes:
   rag_documents:
   rag_chroma:
-  rag_data:      # SQLite database + any future data files
+  rag_data:
