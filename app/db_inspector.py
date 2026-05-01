@@ -93,7 +93,18 @@ def _sql_schema(url: str) -> str:
                 pk_str = f"  [PK: {', '.join(pk_cols)}]" if pk_cols else ""
             except Exception:  # noqa: BLE001
                 pk_str = ""
-            parts.append(f"Table `{table}`: {col_str}{pk_str}")
+            try:
+                fks = insp.get_foreign_keys(table)
+                fk_parts = []
+                for fk in fks:
+                    src_cols = " | ".join(fk.get("constrained_columns", []))
+                    ref_table = fk.get("referred_table", "?")
+                    ref_cols = " | ".join(fk.get("referred_columns", []))
+                    fk_parts.append(f"{src_cols}→{ref_table}.{ref_cols}")
+                fk_str = f"  [FK: {'; '.join(fk_parts)}]" if fk_parts else ""
+            except Exception:  # noqa: BLE001
+                fk_str = ""
+            parts.append(f"Table `{table}`: {col_str}{pk_str}{fk_str}")
         return "\n".join(parts) if parts else "(ไม่พบตารางใดในฐานข้อมูลนี้)"
     finally:
         engine.dispose()

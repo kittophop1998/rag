@@ -18,10 +18,24 @@ CHROMA_RAG_SUBDIR = "rag"
 CHROMA_VANNA_SUBDIR = "vanna"
 
 # ---------------------------------------------------------------------------
-# Text-to-SQL
+# Text-to-SQL  ·  Token budget
 # ---------------------------------------------------------------------------
-MAX_SCHEMA_CHARS = 20_000
-"""Maximum characters of DB schema forwarded to the LLM (~5 000 tokens)."""
+MAX_SCHEMA_CHARS = 12_000
+"""Maximum characters of the full schema sent to the SQL generator (~3 000 tokens).
+Reduced from 20 000 to cut per-query input cost."""
 
-MAX_RESULT_PREVIEW_ROWS = 20
-"""Maximum rows included in the LLM summarisation prompt."""
+MAX_PLANNER_SCHEMA_CHARS = 3_500
+"""Maximum characters of the ultra-compact (names-only) schema sent to the
+Table Planner step.  Much smaller because we only need table + column names."""
+
+MAX_SEMANTIC_CONTEXT_CHARS = 2_500
+"""Maximum characters of semantic-catalog text injected into prompts.
+Prevents large catalogs from dominating the token budget."""
+
+MAX_RESULT_PREVIEW_ROWS = 10
+"""Maximum rows included in the LLM summarisation prompt.
+Reduced from 20 → 10 to cut summarisation input cost."""
+
+MAX_RESULT_PREVIEW_CHARS = 6_000
+"""Hard character cap on the JSON result blob sent to the summariser.
+Guards against rows with very long text fields."""

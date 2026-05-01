@@ -10,7 +10,10 @@ pydantic>=2.10.4
 pydantic-settings>=2.7.1
 httpx>=0.28.1
 
-# --- LangChain (RAG) ---
+# --- OpenAI Python SDK (official) ---
+openai>=1.0.0
+
+# --- LangChain (RAG vector store + embeddings) ---
 langchain>=0.3.14
 langchain-core>=0.3.29
 langchain-openai>=0.2.14
@@ -25,8 +28,9 @@ tiktoken>=0.8.0
 # --- Text-to-SQL (Vanna.ai) ---
 vanna>=0.7.0
 
-# --- PDF loading ---
-pypdf>=5.1.0
+# --- Document loading ---
+pypdf>=5.1.0            # PDF
+python-docx>=1.1.0      # MS Word (.docx)
 
 # --- Web crawling (URL data source) ---
 beautifulsoup4>=4.12    # HTML parsing

@@ -26,15 +26,17 @@ import re
 import shutil
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
 
 from app.config import settings
 from app.db_inspector import _SQL_TYPES, _normalize_sql_url, get_schema_description
+from app.openai_client import get_client
 
 logger = logging.getLogger(__name__)
 
@@ -290,20 +292,92 @@ def _normalize_group_name(group_name: str, table_names: list[str]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Semantic Catalog — AI-generated Thai descriptions for every table
+# ---------------------------------------------------------------------------
+def _generate_semantic_descriptions(
+    schema: str,
+    table_names: list[str],
+) -> dict[str, str]:
+    """Ask OpenAI to produce a short Thai description for each table.
+
+    Returns {table_name: thai_description_string}.
+    Silently returns an empty dict on any failure so indexing is never blocked.
+    """
+    if not table_names:
+        return {}
+
+    descriptions: dict[str, str] = {}
+    client = get_client()
+    CHUNK = 12  # tables per API call
+
+    for i in range(0, len(table_names), CHUNK):
+        chunk = table_names[i : i + CHUNK]
+        # Extract schema lines that belong to this chunk only
+        schema_lines = [
+            line for line in schema.splitlines()
+            if any(f"`{t}`" in line for t in chunk)
+        ]
+        schema_chunk = "\n".join(schema_lines) or "(schema ไม่พร้อมใช้งาน)"
+
+        user_msg = (
+            "คุณคือผู้เชี่ยวชาญด้านฐานข้อมูลที่มีหน้าที่สร้าง Business Glossary\n\n"
+            f"Schema:\n{schema_chunk}\n\n"
+            f"ตาราง: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+            "จงสร้างคำอธิบายภาษาไทยสั้นๆ (1-2 ประโยค) สำหรับแต่ละตาราง\n"
+            "อธิบายว่าตารางเก็บข้อมูลอะไร ใช้ทำอะไร และ column สำคัญมีอะไรบ้าง\n"
+            "รวมถึงให้ระบุความสัมพันธ์กับตารางอื่น (FK) ถ้ามี\n"
+            'ตอบเป็น JSON object: {"table_name": "คำอธิบาย", ...}'
+        )
+        try:
+            resp = client.chat.completions.create(
+                model=settings.openai_chat_model,
+                temperature=0,
+                max_tokens=800,
+                response_format={"type": "json_object"},
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "ตอบเป็น JSON object {table_name: description_thai} เท่านั้น "
+                            "ห้ามมี markdown ห้ามมีข้อความอื่นนอก JSON"
+                        ),
+                    },
+                    {"role": "user", "content": user_msg},
+                ],
+            )
+            data: dict = json.loads(resp.choices[0].message.content or "{}")
+            if isinstance(data, dict):
+                descriptions.update({k: str(v) for k, v in data.items()})
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Semantic description generation failed (chunk %d): %s", i, exc)
+
+    return descriptions
+
+
+def get_semantic_catalog(conn_id: str) -> dict[str, str]:
+    """Return the cached semantic descriptions for a connection.
+
+    Keys are table names, values are Thai business descriptions.
+    Returns an empty dict if the connection has not been indexed yet or
+    if descriptions were not generated (e.g. old index before this feature).
+    """
+    meta = _load_meta(conn_id)
+    if not meta:
+        return {}
+    return meta.get("semantic_catalog", {})
+
+
+# ---------------------------------------------------------------------------
 # OpenAI grouping
 # ---------------------------------------------------------------------------
 def _ask_openai_groups(schema: str, table_names: list[str]) -> dict[str, list[str]]:
     """Ask OpenAI to cluster tables by business domain.
 
+    Uses the official OpenAI Python SDK.
     Returns {group_name: [table_name, ...]} or falls back to a single group.
     """
-    llm = ChatOpenAI(
-        model=settings.openai_chat_model,
-        api_key=settings.openai_api_key,
-        temperature=0,
-    )
     schema_preview = schema[:4_000]
-    prompt = (
+    user_msg = (
         "คุณคือผู้เชี่ยวชาญด้านฐานข้อมูล\n\n"
         f"Schema:\n{schema_preview}\n\n"
         f"ตาราง: {json.dumps(table_names, ensure_ascii=False)}\n\n"
@@ -314,14 +388,24 @@ def _ask_openai_groups(schema: str, table_names: list[str]) -> dict[str, list[st
         'ตัวอย่าง: {"ยอดขาย": ["orders", "order_lines"], "สินค้า": ["products"]}'
     )
     try:
-        resp = llm.invoke(prompt)
-        text = resp.content.strip()
-        if "```" in text:
-            parts = text.split("```")
-            text = parts[1] if len(parts) > 1 else parts[0]
-            if text.lower().startswith("json"):
-                text = text[4:]
-        groups: dict = json.loads(text.strip())
+        client = get_client()
+        resp = client.chat.completions.create(
+            model=settings.openai_chat_model,
+            temperature=0,
+            response_format={"type": "json_object"},
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "คุณคือผู้เชี่ยวชาญด้านฐานข้อมูล ตอบเป็น JSON object เท่านั้น "
+                        "โดย key คือชื่อกลุ่ม value คือ array ชื่อตาราง"
+                    ),
+                },
+                {"role": "user", "content": user_msg},
+            ],
+        )
+        text = (resp.choices[0].message.content or "").strip()
+        groups: dict = json.loads(text)
         if isinstance(groups, dict) and groups:
             return groups
     except Exception as exc:  # noqa: BLE001
@@ -438,6 +522,12 @@ def _run_index(conn_id: str, db_type: str, db_url: str, conn_name: str) -> None:
         )
 
         schema = get_schema_description(db_type, db_url)
+
+        _set_status(conn_id, status="indexing",
+                    message="OpenAI กำลังสร้าง Semantic Catalog (คำอธิบายตาราง)...", progress=38)
+        semantic_catalog = _generate_semantic_descriptions(schema, list(table_data.keys()))
+        logger.info("[db_indexer] Semantic catalog: %d descriptions generated", len(semantic_catalog))
+
         groups = _ask_openai_groups(schema, list(table_data.keys()))
         groups_norm: dict[str, list[str]] = {}
         for g_name, g_tables in groups.items():
@@ -466,11 +556,10 @@ def _run_index(conn_id: str, db_type: str, db_url: str, conn_name: str) -> None:
         )
 
         chroma_dir = _chroma_dir(conn_id)
-        tmp_dir = Path(str(chroma_dir) + "_tmp")
-
-        # Write to a fresh tmp path so ChromaDB never reuses a cached connection
-        # that pointed to the old (now-deleted) chroma.sqlite3 file, which would
-        # cause SQLITE_READONLY_DBMOVED (code 1032).
+        # Use a unique tmp path each run so ChromaDB never reuses a cached
+        # PersistentClient that still holds an open connection to the previous
+        # chroma.sqlite3 inode, which would cause SQLITE_READONLY_DBMOVED (1032).
+        tmp_dir = chroma_dir.parent / f"{chroma_dir.name}_tmp_{uuid.uuid4().hex}"
         if tmp_dir.exists():
             shutil.rmtree(tmp_dir)
         tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -536,6 +625,7 @@ def _run_index(conn_id: str, db_type: str, db_url: str, conn_name: str) -> None:
             group_map=groups_clean,
             table_rows=table_rows,
             indexed_at=indexed_at,
+            semantic_catalog=semantic_catalog,
             progress=100,
         )
 
@@ -548,6 +638,7 @@ def _run_index(conn_id: str, db_type: str, db_url: str, conn_name: str) -> None:
             "group_map": groups_clean,
             "table_rows": table_rows,
             "indexed_at": indexed_at,
+            "semantic_catalog": semantic_catalog,
         })
         logger.info(
             "DB index complete [%s]: %d tables, %d rows, %d chunks, %d groups",

@@ -1290,11 +1290,14 @@ class App {
     this.isStreaming = true;
     let fullText = '';
 
+    let dbResult = null;
     try {
-      const result = await API.dbQuery(question, this._selectedDbId);
-      fullText = result.answer || '(ไม่มีคำตอบ)';
+      dbResult = await API.dbQuery(question, this._selectedDbId);
+      fullText = dbResult.answer || '(ไม่มีคำตอบ)';
       setContent(fullText, false);
       finalize();
+      // Show SQL query + data table panel below the answer
+      if (dbResult) this._appendDbResult(msgEl, dbResult);
     } catch (err) {
       if (err.message.includes('401') || err.message.toLowerCase().includes('session')) {
         Auth.clearToken(); showLogin(); return;
@@ -1436,9 +1439,10 @@ class App {
       `<span>🔍 ${queryLang} ที่ใช้</span>`;
 
     const queryPanel = document.createElement('div');
-    queryPanel.className = 'db-result-panel hidden';
+    queryPanel.className = 'db-result-panel';
     queryPanel.innerHTML = `<pre class="db-query-code"><code>${esc(result.query || '')}</code></pre>`;
 
+    queryToggle.querySelector('svg').style.transform = 'rotate(180deg)';
     queryToggle.addEventListener('click', () => {
       const open = queryPanel.classList.toggle('hidden');
       queryToggle.querySelector('svg').style.transform = open ? '' : 'rotate(180deg)';
@@ -1537,17 +1541,24 @@ class App {
     try {
       const data = await API.documents();
       if (!data.documents.length) {
-        list.innerHTML = '<p class="docs-empty">ยังไม่มีไฟล์ PDF<br>กดอัปโหลดเพื่อเพิ่มเอกสาร</p>';
+        list.innerHTML = '<p class="docs-empty">ยังไม่มีไฟล์เอกสาร<br>รองรับ PDF, Word (.docx), CSV<br>กดอัปโหลดเพื่อเพิ่มเอกสาร</p>';
         return;
       }
-      const fileSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
+      const fileIcon = (ft) => {
+        if (ft === 'pdf')  return '📄';
+        if (ft === 'docx') return '📝';
+        if (ft === 'csv')  return '📊';
+        return '📎';
+      };
       list.innerHTML = data.documents.map(doc => {
         const statusKey   = doc.indexed ? 'ready' : 'indexing';
         const statusLabel = doc.indexed ? 'Ready' : 'Indexing';
+        const typeBadge   = (doc.file_type || 'pdf').toUpperCase();
         return `
         <div class="doc-item" title="${esc(doc.name)}">
-          <span class="doc-item-icon">${fileSvg}</span>
+          <span class="doc-item-icon">${fileIcon(doc.file_type)}</span>
           <span class="doc-item-name">${esc(doc.name)}</span>
+          <span class="doc-item-type-badge">${typeBadge}</span>
           <span class="doc-item-size">${fmtBytes(doc.size)}</span>
           <span class="doc-item-badge ${statusKey}">${statusLabel}</span>
         </div>`;
@@ -1558,7 +1569,13 @@ class App {
   }
 
   async _uploadFiles(files) {
+    const ALLOWED_EXT = ['.pdf', '.docx', '.csv'];
     for (const file of files) {
+      const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+      if (!ALLOWED_EXT.includes(ext)) {
+        toast(`ไม่รองรับไฟล์ ${ext.toUpperCase()} — รองรับเฉพาะ PDF, Word (.docx), CSV`, 'error');
+        continue;
+      }
       toast(`กำลังอัปโหลด ${file.name}...`, 'info', 8000);
       try {
         await API.upload(file);

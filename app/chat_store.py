@@ -359,14 +359,21 @@ def set_group_enabled(conn_id: str, group_name: str, enabled: bool) -> None:
 
 
 def touch_group_indexed(conn_id: str, group_name: str) -> None:
-    """Update last_indexed_at timestamp and ensure the row exists."""
+    """Update last_indexed_at timestamp and ensure the row exists.
+
+    After a successful re-index the group is automatically re-enabled so that
+    freshly indexed data is immediately visible in RAG queries even if an admin
+    had previously toggled the group off.
+    """
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     with _conn() as con:
         con.execute(
             """
             INSERT INTO db_group_states(conn_id, group_name, enabled, last_indexed_at)
             VALUES (?, ?, 1, ?)
-            ON CONFLICT(conn_id, group_name) DO UPDATE SET last_indexed_at=excluded.last_indexed_at
+            ON CONFLICT(conn_id, group_name) DO UPDATE
+                SET last_indexed_at = excluded.last_indexed_at,
+                    enabled         = 1
             """,
             (conn_id, group_name, now),
         )

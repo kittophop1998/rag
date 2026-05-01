@@ -63,7 +63,8 @@ from app.url_sources import (
     list_url_sources,
     update_url_source,
 )
-from app.indexer import build_vectorstore
+from app.agent import agent_engine
+from app.indexer import build_vectorstore, list_documents, SUPPORTED_EXTENSIONS
 from app.rag import rag_engine
 from app.text_to_sql import text_to_query_engine
 from app.user_store import (
@@ -602,14 +603,42 @@ async def api_chat(
 @app.get("/api/chat/stream")
 async def api_chat_stream(
     q: str = "",
+    mode: str = "agent",
     _: UserSession = Depends(require_auth),
 ) -> StreamingResponse:
-    """Stream a RAG answer token-by-token via Server-Sent Events (GET ?q=...)."""
-    if not q.strip():
+    """Stream a RAG answer token-by-token via Server-Sent Events (GET ?q=...[&mode=agent|rag]).
 
+    mode=agent  (default) — uses the Agentic Workflow engine (intent classification +
+                            multi-source retrieval + reflection)
+    mode=rag              — uses the original RAG engine directly (backward compat)
+    """
+    if not q.strip():
         async def _empty_err():
             yield 'data: {"type":"error","content":"คำถามว่างเปล่า"}\n\n'
+        return StreamingResponse(_empty_err(), media_type="text/event-stream")
 
+    engine_stream = (
+        agent_engine.ask_stream(q.strip())
+        if mode != "rag"
+        else rag_engine.ask_stream(q.strip())
+    )
+
+    return StreamingResponse(
+        engine_stream,
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/api/chat/stream/rag")
+async def api_chat_stream_rag(
+    q: str = "",
+    _: UserSession = Depends(require_auth),
+) -> StreamingResponse:
+    """Stream using the classic RAG engine (bypasses agentic routing)."""
+    if not q.strip():
+        async def _empty_err():
+            yield 'data: {"type":"error","content":"คำถามว่างเปล่า"}\n\n'
         return StreamingResponse(_empty_err(), media_type="text/event-stream")
 
     return StreamingResponse(
@@ -622,26 +651,23 @@ async def api_chat_stream(
 # ── Documents (all authenticated users) ───────────────────────────────────────
 @app.get("/api/documents")
 async def api_documents(_: UserSession = Depends(require_auth)):
-    """List PDF documents in the documents directory with their index status."""
-    docs_dir = settings.documents_dir
+    """List all supported documents (PDF, Word, CSV) in the documents directory."""
     indexed = (settings.chroma_rag_dir / "chroma.sqlite3").exists()
-
-    if not docs_dir.exists():
-        return {"documents": [], "indexed": indexed, "count": 0}
-
-    pdfs = sorted(docs_dir.rglob("*.pdf"))
+    docs = list_documents(settings.documents_dir)
     return {
         "documents": [
             {
-                "name": p.name,
-                "path": str(p.relative_to(docs_dir)),
-                "size": p.stat().st_size,
-                "indexed": indexed,
+                "name":      d["name"],
+                "path":      d["path"],
+                "size":      d["size"],
+                "file_type": d["file_type"],
+                "indexed":   indexed,
             }
-            for p in pdfs
+            for d in docs
         ],
         "indexed": indexed,
-        "count": len(pdfs),
+        "count":   len(docs),
+        "supported_types": sorted(SUPPORTED_EXTENSIONS),
     }
 
 
@@ -651,10 +677,14 @@ async def api_upload(
     file: UploadFile = File(...),
     _: UserSession = Depends(require_admin),
 ):
-    """Upload a PDF file into the documents directory (admin only)."""
+    """Upload a document (PDF, Word .docx, CSV) into the documents directory (admin only)."""
     fname = file.filename or ""
-    if not fname.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="รองรับเฉพาะไฟล์ PDF เท่านั้น")
+    ext = Path(fname).suffix.lower()
+    if ext not in SUPPORTED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"รองรับเฉพาะไฟล์ {', '.join(sorted(SUPPORTED_EXTENSIONS))} เท่านั้น",
+        )
 
     docs_dir = settings.documents_dir
     docs_dir.mkdir(parents=True, exist_ok=True)
@@ -662,17 +692,21 @@ async def api_upload(
     dest = docs_dir / fname
     content = await file.read()
     dest.write_bytes(content)
-    logger.info("Uploaded PDF: %s (%d bytes)", fname, len(content))
-    return {"status": "ok", "filename": fname, "size": len(content)}
+    logger.info("Uploaded %s: %s (%d bytes)", ext.upper(), fname, len(content))
+    return {"status": "ok", "filename": fname, "size": len(content), "file_type": ext.lstrip(".")}
 
 
 @app.post("/api/reindex")
 async def api_reindex(_: UserSession = Depends(require_admin)):
-    """Force a rebuild of the ChromaDB RAG index from ./documents (admin only)."""
+    """Force a rebuild of the ChromaDB RAG index from ./documents (admin only).
+
+    Uses a tmp-then-move write strategy so the old Chroma client (which may
+    be cached at the process level by chromadb's SharedSystemClient) never
+    blocks the write.  No SQLITE_READONLY_DBMOVED (1032) risk.
+    """
     try:
-        # Release the existing Chroma client (and close its SQLite connection)
-        # BEFORE wiping the directory.  Deleting the directory while the Rust
-        # bindings still hold the file open causes SQLITE_READONLY_DBMOVED (1032).
+        # Release our LangChain Chroma wrapper so the next access re-opens
+        # from the newly moved directory.
         rag_engine.reload()
         build_vectorstore(force=True)
     except RuntimeError as exc:
