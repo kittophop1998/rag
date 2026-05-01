@@ -14,23 +14,33 @@
 /* ================================================================
    CONFIGURATION
    ================================================================ */
+
+// Auto-detect base path so the app works both at domain root ("/")
+// and under a subpath (e.g. "/rag/").  Strips any trailing filename
+// so that "/rag/" and "/rag/index.html" both yield "/rag".
+const BASE_PATH = (() => {
+  const p = window.location.pathname;
+  const dir = p.endsWith('/') ? p.slice(0, -1) : p.replace(/\/[^/]*$/, '');
+  return dir; // '' when at root, '/rag' when at /rag/
+})();
+
 const CFG = {
-  STREAM_URL:    '/api/chat/stream',
-  REINDEX_URL:   '/api/reindex',
-  DOCS_URL:      '/api/documents',
-  UPLOAD_URL:    '/api/upload',
-  LOGIN_URL:     '/api/auth/login',
-  LOGOUT_URL:    '/api/auth/logout',
-  ME_URL:        '/api/auth/me',
-  DB_URL:        '/api/settings/databases',
-  DB_LIST_URL:   '/api/databases',
-  DB_QUERY_URL:  '/api/db-query',
-  URLS_URL:      '/api/settings/urls',
-  USERS_URL:     '/api/users',
+  STREAM_URL:    `${BASE_PATH}/api/chat/stream`,
+  REINDEX_URL:   `${BASE_PATH}/api/reindex`,
+  DOCS_URL:      `${BASE_PATH}/api/documents`,
+  UPLOAD_URL:    `${BASE_PATH}/api/upload`,
+  LOGIN_URL:     `${BASE_PATH}/api/auth/login`,
+  LOGOUT_URL:    `${BASE_PATH}/api/auth/logout`,
+  ME_URL:        `${BASE_PATH}/api/auth/me`,
+  DB_URL:        `${BASE_PATH}/api/settings/databases`,
+  DB_LIST_URL:   `${BASE_PATH}/api/databases`,
+  DB_QUERY_URL:  `${BASE_PATH}/api/db-query`,
+  URLS_URL:      `${BASE_PATH}/api/settings/urls`,
+  USERS_URL:     `${BASE_PATH}/api/users`,
   TOKEN_KEY:     'rag_auth_token',
   ROLE_KEY:      'rag_auth_role',
   USER_KEY:      'rag_auth_user',
-  SESSIONS_URL:  '/api/sessions',
+  SESSIONS_URL:  `${BASE_PATH}/api/sessions`,
   MAX_SESSIONS:  60,
   TITLE_MAX_LEN: 46,
 };
