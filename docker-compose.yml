@@ -1,8 +1,8 @@
 services:
   backend:
     build: .
-    image: internal-office-backend:latest
-    container_name: internal-office-backend
+    image: rag-app:latest
+    container_name: rag-app
     restart: always
 
     ports:
