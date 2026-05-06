@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     # ── OpenAI ────────────────────────────────────────────────────────────
     openai_api_key: str = ""
     openai_chat_model: str = "gpt-4o"
-    openai_embed_model: str = "text-embedding-3-small"
+    openai_embed_model: str = "text-embedding-3-large"
 
     # ── ChromaDB ──────────────────────────────────────────────────────────
     chroma_base_dir: Path = Path("./chroma")
@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     documents_dir: Path = Path("./documents")
     chunk_size: int = 1_000
     chunk_overlap: int = 150
-    top_k: int = 3
+    top_k: int = 5
 
     # ── Auth ──────────────────────────────────────────────────────────────
     admin_username: str = "admin"

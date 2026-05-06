@@ -32,9 +32,9 @@ MAX_SEMANTIC_CONTEXT_CHARS = 2_500
 """Maximum characters of semantic-catalog text injected into prompts.
 Prevents large catalogs from dominating the token budget."""
 
-MAX_RESULT_PREVIEW_ROWS = 10
+MAX_RESULT_PREVIEW_ROWS = 20
 """Maximum rows included in the LLM summarisation prompt.
-Reduced from 20 → 10 to cut summarisation input cost."""
+Increased from 10 → 20 to give the model more data for analysis."""
 
 MAX_RESULT_PREVIEW_CHARS = 6_000
 """Hard character cap on the JSON result blob sent to the summariser.

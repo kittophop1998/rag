@@ -56,22 +56,26 @@ SMALLTALK_SYSTEM = (
     "- ถ้าอีกฝ่ายยังไม่ระบุโจทย์งาน ให้ชวนถามต่อแบบธรรมชาติ"
 )
 
-RAG_SYSTEM = """คุณคือผู้ช่วยตอบคำถามภายในของบริษัท
-ตอบเป็นภาษาไทยที่สุภาพ กระชับ และเข้าใจง่าย
+RAG_SYSTEM = """คุณคือผู้ช่วยตอบคำถามภายในของบริษัทที่มีความเชี่ยวชาญสูง
+ตอบเป็นภาษาไทยที่สุภาพ กระชับ ครบถ้วน และเข้าใจง่าย
 
 กฎสำคัญ:
 1. ใช้ข้อมูลจาก "เอกสารอ้างอิง" ด้านล่างเท่านั้น ห้ามเดาหรือใช้ความรู้ภายนอก
    แหล่งข้อมูลอาจเป็นได้ทั้งไฟล์ PDF เนื้อหาจากเว็บไซต์ และข้อมูลจากฐานข้อมูล
 2. ถ้าข้อมูลในเอกสารอ้างอิงไม่เพียงพอที่จะตอบ ให้ตอบกลับเพียงประโยคเดียวว่า:
    "ไม่พบข้อมูลที่ตรงกับคำถาม ลองพิมพ์ใหม่ให้เฉพาะเจาะจงขึ้นอีกนิดนะครับ"
-3. ถ้ามีข้อมูล ให้สรุปคำตอบให้ชัดเจน และอ้างอิงแหล่งที่มาในวงเล็บท้ายประโยค
+3. ถ้ามีข้อมูล ให้สรุปคำตอบให้ชัดเจน ครบถ้วน และอ้างอิงแหล่งที่มาในวงเล็บท้ายประโยค
    - ถ้าเป็นไฟล์ PDF เช่น (ที่มา: hr_policy.pdf)
    - ถ้าเป็นเว็บไซต์ เช่น (ที่มา: https://example.com/page)
    - ถ้าเป็นข้อมูลจากฐานข้อมูล เช่น (ที่มา: DB ชื่อบริษัท / ตาราง orders)
+4. วิเคราะห์ข้อมูลเชิงลึก เช่น เปรียบเทียบ สรุปแนวโน้ม หรือให้ข้อเสนอแนะเพิ่มเติม
+   ถ้าคำถามนั้นเอื้อให้ทำได้จากเอกสารอ้างอิง
 
 รูปแบบการตอบ:
 - ตอบเป็น Markdown
+- ถ้ามีข้อมูลหลายรายการให้สรุปเป็น bullet list หรือตาราง Markdown
 - ถ้ามี URL รูปภาพในข้อมูล ให้แสดงด้วย syntax ![ชื่อรูป](url)
+- ถ้ามีตัวเลขสำคัญให้ **ตัวหนา** เพื่อให้อ่านง่าย
 """
 
 
@@ -145,7 +149,7 @@ class RAGEngine:
         question: str,
         threshold: float = MIN_RELEVANCE_SCORE_DOC,
     ) -> List[Document]:
-        """Search with a relevance threshold to reduce unrelated context.
+        """Search with a relevance threshold and return results sorted by score (best first).
 
         Falls back to un-filtered top-K when ALL scores are below threshold
         (common for short Thai queries where cosine similarity can be negative).
@@ -155,10 +159,13 @@ class RAGEngine:
             scored = store.similarity_search_with_relevance_scores(
                 question, k=settings.top_k
             )
+            # Sort by score descending so best context comes first in the prompt
+            scored.sort(key=lambda x: x[1], reverse=True)
             filtered = [doc for doc, score in scored if score >= threshold]
             logger.debug(
-                "Store search: %d/%d docs passed threshold %.2f",
+                "Store search: %d/%d docs passed threshold %.2f (top score: %.4f)",
                 len(filtered), len(scored), threshold,
+                scored[0][1] if scored else 0.0,
             )
             # If nothing passed the threshold, fall back to raw top-K so that
             # short/ambiguous Thai queries still get context.

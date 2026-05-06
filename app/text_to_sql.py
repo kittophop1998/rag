@@ -74,8 +74,9 @@ Q: "ค้นหาพนักงานชื่อ สมชาย"
 SQL: SELECT * FROM employees e WHERE e.name LIKE '%สมชาย%' LIMIT 200;
 --- จบตัวอย่าง ---"""
 
-_SQL_SYSTEM = """You are a read-only SQL expert specialised in {dialect}.
-Your ONLY job is to generate SELECT queries. You are STRICTLY FORBIDDEN from generating any other statement.
+_SQL_SYSTEM = """You are a senior read-only SQL expert specialised in {dialect}.
+Your ONLY job is to generate the most accurate and efficient SELECT queries.
+You are STRICTLY FORBIDDEN from generating any other statement.
 
 ABSOLUTE RULES — violation will cause the query to be rejected:
 - ONLY generate SELECT statements. NEVER generate DROP, DELETE, INSERT, UPDATE, ALTER, TRUNCATE, CREATE, REPLACE, or MERGE.
@@ -86,6 +87,14 @@ ABSOLUTE RULES — violation will cause the query to be rejected:
 - Current Date: {current_date}
 - Always use table aliases and qualify columns with aliases (e.g. u.id, o.created_at) to avoid ambiguous column errors.
 - Use JOIN hints from [FK: ...] annotations in the Schema to connect related tables correctly.
+
+QUERY QUALITY RULES:
+- For aggregation questions (sum, count, average, top-N), always use GROUP BY and ORDER BY appropriately.
+- For date/time filtering, use the most precise condition possible (YEAR + MONTH, DATE_FORMAT, BETWEEN, etc.).
+- For "top-N" questions, always include ORDER BY with the relevant metric DESC and LIMIT N.
+- For JOIN queries, select only meaningful columns — avoid SELECT * when joining multiple tables.
+- Prefer column aliases (AS) in SELECT for readability (e.g. SUM(o.total) AS total_sales).
+- If the question is ambiguous, write the query that best matches the most common interpretation.
 
 {semantic_context}
 
@@ -130,13 +139,16 @@ ABSOLUTE RULES — violation will cause the query to be rejected:
 Schema (collections & fields):
 {schema}"""
 
-_ANSWER_SYSTEM = """คุณคือผู้ช่วยวิเคราะห์ข้อมูลของบริษัท
+_ANSWER_SYSTEM = """คุณคือนักวิเคราะห์ข้อมูลของบริษัทที่มีความเชี่ยวชาญสูง
 ตอบเป็นภาษาไทย กระชับ ชัดเจน เน้นสรุปตัวเลขและข้อมูลสำคัญ
 ถ้าผลลัพธ์ว่างเปล่า ให้บอกว่าไม่พบข้อมูลตามเงื่อนไขที่ระบุ และแนะนำให้ลองค้นหาด้วยคำที่กว้างขึ้นหรือปรับช่วงเวลา
 
 รูปแบบการตอบ:
 - ถ้ามีข้อมูลหลายรายการให้สรุปเป็น bullet list หรือตาราง Markdown
 - ถ้ามี URL รูปภาพในผลลัพธ์ ให้แสดงด้วย syntax ![ชื่อ](url)
+- ตัวเลขสำคัญให้ **ตัวหนา** และจัดรูปแบบให้อ่านง่าย (เช่น ใส่ comma คั่นหลักพัน)
+- ถ้าผลลัพธ์มีมากกว่า 20 แถว ให้วิเคราะห์สถิติสรุป (รวม, เฉลี่ย, สูงสุด, ต่ำสุด) แทนการแสดงทุก row
+- ถ้ามีข้อมูลเชิงแนวโน้ม (เช่น ยอดขายตามเดือน) ให้วิเคราะห์แนวโน้มเพิ่มเติมด้วย
 - ท้ายคำตอบให้แสดง query ที่ใช้ในรูปแบบ code block เสมอ เพื่อให้ผู้ใช้ตรวจสอบได้"""
 
 _ANSWER_USER = """คำถาม: {question}
@@ -293,6 +305,7 @@ class TextToQueryEngine:
             resp = client.chat.completions.create(
                 model=settings.openai_chat_model,
                 temperature=0.2,
+                max_tokens=2048,
                 messages=[
                     {"role": "system", "content": _ANSWER_SYSTEM},
                     {
@@ -369,7 +382,7 @@ def _generate_query_with_openai(
         resp = client.chat.completions.create(
             model=settings.openai_chat_model,
             temperature=0,
-            max_tokens=1024,
+            max_tokens=2048,
             messages=[
                 {"role": "system", "content": system_msg},
                 {"role": "user",   "content": question},
