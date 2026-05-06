@@ -36,8 +36,10 @@ SMALLTALK_REPLY_FALLBACK = "ได้เลยครับ ผมพร้อม
 
 # Separate thresholds: DB rows are structured text and tend to have lower
 # cosine similarity even when highly relevant.
-MIN_RELEVANCE_SCORE_DOC = 0.20
-MIN_RELEVANCE_SCORE_DB  = 0.10
+# NOTE: Thai text / OCR-heavy PDFs typically score 0.05–0.15; keep threshold
+#       low enough to surface relevant chunks while still filtering random noise.
+MIN_RELEVANCE_SCORE_DOC = 0.05
+MIN_RELEVANCE_SCORE_DB  = 0.05
 
 SMALLTALK_PATTERNS = (
     r"^(hi|hello|hey)\b",
@@ -143,7 +145,12 @@ class RAGEngine:
         question: str,
         threshold: float = MIN_RELEVANCE_SCORE_DOC,
     ) -> List[Document]:
-        """Search with a relevance threshold to reduce unrelated context."""
+        """Search with a relevance threshold to reduce unrelated context.
+
+        Falls back to un-filtered top-K when ALL scores are below threshold
+        (common for short Thai queries where cosine similarity can be negative).
+        In that case the LLM prompt already guards against hallucination.
+        """
         try:
             scored = store.similarity_search_with_relevance_scores(
                 question, k=settings.top_k
@@ -153,6 +160,14 @@ class RAGEngine:
                 "Store search: %d/%d docs passed threshold %.2f",
                 len(filtered), len(scored), threshold,
             )
+            # If nothing passed the threshold, fall back to raw top-K so that
+            # short/ambiguous Thai queries still get context.
+            if not filtered and scored:
+                logger.debug(
+                    "No docs passed threshold %.2f — returning raw top-%d results",
+                    threshold, len(scored),
+                )
+                return [doc for doc, _ in scored]
             return filtered
         except Exception:  # noqa: BLE001
             return store.similarity_search(question, k=settings.top_k)

@@ -42,6 +42,50 @@ logger = logging.getLogger(__name__)
 # Supported file extensions
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".csv"}
 
+# ---------------------------------------------------------------------------
+# Thai PUA → Standard Unicode normalisation
+# ---------------------------------------------------------------------------
+# Old Thai PDF fonts (e.g. Angsana, Cordia, TH SarabunPSK in Windows 9x era)
+# map combining vowels / tone-marks to the Unicode Private-Use-Area (U+F700–
+# U+F7FF) instead of the standard Thai block (U+0E00–U+0E7F).  PyPDF extracts
+# these as-is, causing a mismatch between indexed text and user queries.
+_THAI_PUA_MAP: dict[str, str] = {
+    "\uf700": "\u0e40",  # sara e (alternate)
+    "\uf701": "\u0e41",  # sara ae (alternate)
+    "\uf702": "\u0e35",  # sara ii  ี
+    "\uf703": "\u0e36",  # sara ue  ึ
+    "\uf704": "\u0e38",  # sara u   ุ
+    "\uf705": "\u0e48",  # mai ek   ่
+    "\uf706": "\u0e49",  # mai tho  ้
+    "\uf707": "\u0e4a",  # mai tri  ๊
+    "\uf708": "\u0e4b",  # mai jattawa ๋
+    "\uf709": "\u0e47",  # maitaikhu ็
+    "\uf70a": "\u0e48",  # mai ek   ่ (positional variant)
+    "\uf70b": "\u0e49",  # mai tho  ้ (positional variant)
+    "\uf70c": "\u0e4a",  # mai tri  ๊ (positional variant)
+    "\uf70d": "\u0e4b",  # mai jattawa ๋ (positional variant)
+    "\uf70e": "\u0e47",  # maitaikhu ็ (positional variant)
+    "\uf70f": "\u0e47",  # maitaikhu ็ (positional variant)
+    "\uf710": "\u0e31",  # sara a   ั
+    "\uf711": "\u0e34",  # sara i   ิ
+    "\uf712": "\u0e47",  # maitaikhu ็ (another variant)
+    "\uf713": "\u0e4c",  # thanthakat ์
+    "\uf714": "\u0e4d",  # nikhahit  ํ
+    "\uf715": "\u0e32",  # sara aa  า (alternate)
+}
+_THAI_PUA_TABLE = str.maketrans(_THAI_PUA_MAP)
+
+
+def _normalize_thai_pua(text: str) -> str:
+    """Replace Thai PUA characters with their standard Unicode equivalents.
+
+    Needed for PDFs created with old Thai Type-1 fonts (Angsana, Cordia, etc.)
+    whose combining marks land in U+F700–U+F7FF instead of U+0E00–U+0E7F.
+    Without this step the embeddings of indexed text won't match embeddings of
+    normal Thai queries typed by users.
+    """
+    return text.translate(_THAI_PUA_TABLE)
+
 
 # ---------------------------------------------------------------------------
 # Loading helpers
@@ -66,6 +110,9 @@ def _load_pdfs(documents_dir: Path) -> List[Document]:
             for d in file_docs:
                 d.metadata["source"] = str(path.relative_to(documents_dir))
                 d.metadata["file_type"] = "pdf"
+                # Normalise Thai PUA characters (old Thai fonts) so embeddings
+                # match standard Unicode queries typed by users.
+                d.page_content = _normalize_thai_pua(d.page_content)
             docs.extend(file_docs)
         except Exception as exc:  # noqa: BLE001
             logger.exception("Failed to load PDF %s: %s", path, exc)

@@ -34,8 +34,10 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 NOT_FOUND_REPLY = "ไม่พบข้อมูลที่ตรงกับคำถาม ลองพิมพ์ใหม่ให้เฉพาะเจาะจงขึ้นอีกนิดนะครับ"
 SMALLTALK_FALLBACK = "ได้เลยครับ ผมพร้อมคุยด้วยเสมอ มีอะไรอยากคุยหรืออยากให้ช่วยเพิ่มเติมไหมครับ"
-MIN_RELEVANCE_SCORE_DOC = 0.20   # Documents / URL sources
-MIN_RELEVANCE_SCORE_DB  = 0.10   # DB data rows (structured text; lower threshold)
+# NOTE: Thai text / OCR-heavy PDFs typically score 0.05–0.15; keep threshold
+#       low enough to surface relevant chunks while still filtering random noise.
+MIN_RELEVANCE_SCORE_DOC = 0.05   # Documents / URL sources
+MIN_RELEVANCE_SCORE_DB  = 0.05   # DB data rows (structured text; lower threshold)
 
 SMALLTALK_PATTERNS = (
     r"^(hi|hello|hey)\b",
@@ -93,7 +95,10 @@ def _retrieve_all_docs(question: str) -> List[Document]:
     try:
         vs = build_or_load_vectorstore()
         scored = vs.similarity_search_with_relevance_scores(question, k=settings.top_k)
-        all_docs.extend(doc for doc, score in scored if score >= MIN_RELEVANCE_SCORE_DOC)
+        passed = [doc for doc, score in scored if score >= MIN_RELEVANCE_SCORE_DOC]
+        # Fallback: if nothing passed threshold (e.g. short Thai queries with
+        # negative cosine scores), include all top-K so context is not empty.
+        all_docs.extend(passed if passed else [doc for doc, _ in scored])
     except FileNotFoundError:
         pass
     except Exception as exc:  # noqa: BLE001
@@ -110,6 +115,8 @@ def _retrieve_all_docs(question: str) -> List[Document]:
             try:
                 scored = db_vs.similarity_search_with_relevance_scores(question, k=settings.top_k)
                 db_docs = [doc for doc, score in scored if score >= MIN_RELEVANCE_SCORE_DB]
+                if not db_docs:
+                    db_docs = [doc for doc, _ in scored]
             except Exception:
                 db_docs = db_vs.similarity_search(question, k=settings.top_k)
             if disabled:
