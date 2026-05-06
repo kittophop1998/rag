@@ -35,6 +35,7 @@ from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
 
 from app.config import settings
+from app.constants import CHROMA_DB_SUBDIR
 from app.db_inspector import _SQL_TYPES, _normalize_sql_url, get_schema_description
 from app.openai_client import get_client
 
@@ -70,7 +71,7 @@ _index_status: dict[str, dict] = {}
 # Paths
 # ---------------------------------------------------------------------------
 def _chroma_dir(conn_id: str) -> Path:
-    return settings.chroma_base_dir / "db" / conn_id
+    return settings.chroma_base_dir / CHROMA_DB_SUBDIR / conn_id
 
 
 # ---------------------------------------------------------------------------
@@ -481,7 +482,7 @@ def load_db_store(conn_id: str) -> Chroma | None:
 
 def list_indexed_conn_ids() -> list[str]:
     """Return conn_ids that have a completed index under chroma/db/."""
-    db_root = settings.chroma_base_dir / "db"
+    db_root = settings.chroma_base_dir / CHROMA_DB_SUBDIR
     if not db_root.exists():
         return []
     return [

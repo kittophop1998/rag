@@ -16,6 +16,8 @@ CHROMA_RAG_COLLECTION = "rag_documents"
 # ---------------------------------------------------------------------------
 CHROMA_RAG_SUBDIR = "rag"
 CHROMA_VANNA_SUBDIR = "vanna"
+CHROMA_DB_SUBDIR = "db"
+"""Sub-directory under chroma_base_dir that holds per-connection DB indexes."""
 
 # ---------------------------------------------------------------------------
 # Text-to-SQL  ·  Token budget

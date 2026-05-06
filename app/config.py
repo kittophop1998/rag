@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.constants import CHROMA_RAG_SUBDIR, CHROMA_VANNA_SUBDIR
+from app.constants import CHROMA_RAG_SUBDIR, CHROMA_VANNA_SUBDIR, CHROMA_DB_SUBDIR
 
 
 class Settings(BaseSettings):
@@ -18,8 +18,11 @@ class Settings(BaseSettings):
     Directory layout (all relative to the working directory):
 
         chroma_base_dir/           ← single ChromaDB root  (CHROMA_BASE_DIR)
-            rag/                   ← document vector store  (auto-computed)
-            vanna/                 ← Vanna.ai SQL training  (auto-computed)
+            rag/                   ← document vector store  (chroma_rag_dir)
+            db/<conn_id>/          ← per-connection DB indexes (chroma_db_dir)
+            vanna/                 ← Vanna.ai SQL training  (chroma_vanna_dir)
+        data/
+            chat.db                ← SQLite: users, sessions, messages, configs
         documents/                 ← source PDFs            (DOCUMENTS_DIR)
     """
 
@@ -73,6 +76,11 @@ class Settings(BaseSettings):
     def chroma_vanna_dir(self) -> Path:
         """ChromaDB persist directory for Vanna.ai SQL training data."""
         return self.chroma_base_dir / CHROMA_VANNA_SUBDIR
+
+    @property
+    def chroma_db_dir(self) -> Path:
+        """ChromaDB persist directory root for per-connection DB indexes."""
+        return self.chroma_base_dir / CHROMA_DB_SUBDIR
 
 
 settings = Settings()

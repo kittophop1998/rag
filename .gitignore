@@ -17,6 +17,7 @@ documents/*
 # In production use Docker named volumes or set CHROMA_BASE_DIR to a
 # persistent path outside the project root.
 chroma/
+chroma_db/   # legacy — safe to delete if present
 
 
 # Legacy JSON config files (data now lives in SQLite)
