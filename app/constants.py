@@ -22,17 +22,18 @@ CHROMA_DB_SUBDIR = "db"
 # ---------------------------------------------------------------------------
 # Text-to-SQL  ·  Token budget
 # ---------------------------------------------------------------------------
-MAX_SCHEMA_CHARS = 12_000
-"""Maximum characters of the full schema sent to the SQL generator (~3 000 tokens).
-Reduced from 20 000 to cut per-query input cost."""
+MAX_SCHEMA_CHARS = 20_000
+"""Maximum characters of the full schema sent to the SQL generator (~5 000 tokens).
+Increased to cover large databases with 300+ tables."""
 
-MAX_PLANNER_SCHEMA_CHARS = 3_500
+MAX_PLANNER_SCHEMA_CHARS = 25_000
 """Maximum characters of the ultra-compact (names-only) schema sent to the
-Table Planner step.  Much smaller because we only need table + column names."""
+Table Planner step.  Must be large enough to include ALL tables in the DB.
+For a 394-table DB the compact schema is ~23 000 chars; set to 25 000 to cover it."""
 
-MAX_SEMANTIC_CONTEXT_CHARS = 2_500
+MAX_SEMANTIC_CONTEXT_CHARS = 4_000
 """Maximum characters of semantic-catalog text injected into prompts.
-Prevents large catalogs from dominating the token budget."""
+Increased to provide richer table descriptions for large databases."""
 
 MAX_RESULT_PREVIEW_ROWS = 20
 """Maximum rows included in the LLM summarisation prompt.
