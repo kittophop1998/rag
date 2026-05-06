@@ -494,6 +494,101 @@ def list_indexed_conn_ids() -> list[str]:
 # ---------------------------------------------------------------------------
 # Main indexing pipeline (runs in background thread)
 # ---------------------------------------------------------------------------
+
+# Embedding batch size (chunks per OpenAI call).
+# text-embedding-3-small limit is 1M TPM; DB chunks from large tables can be
+# several thousand tokens each.  Use a conservative batch size (10 chunks) so
+# a single batch stays well under the per-minute token budget.
+_EMBED_BATCH_SIZE = 10
+# Seconds to wait between batches to avoid TPM rate-limit (429).
+_EMBED_BATCH_DELAY = 5.0
+# Max retry attempts per batch on 429 errors.
+_EMBED_MAX_RETRIES = 10
+
+
+def _embed_docs_to_chroma(
+    all_docs: list[Document],
+    tmp_dir: Path,
+    conn_id: str,
+    collection_name: str,
+) -> None:
+    """Embed *all_docs* into a new Chroma collection in *tmp_dir*.
+
+    Splits documents into small batches and inserts them one batch at a time.
+    On HTTP 429 (rate-limit) it waits for the retry-after period (or up to
+    ``_EMBED_MAX_RETRIES`` times with exponential back-off) before retrying.
+    Progress is written to the in-memory status dict so the UI stays updated.
+    """
+    import re as _re  # noqa: PLC0415 – local to avoid circular at module level
+
+    embeddings = OpenAIEmbeddings(
+        model=settings.openai_embed_model,
+        api_key=settings.openai_api_key,
+    )
+
+    vectorstore: Chroma | None = None
+    total = len(all_docs)
+
+    for batch_start in range(0, total, _EMBED_BATCH_SIZE):
+        batch = all_docs[batch_start : batch_start + _EMBED_BATCH_SIZE]
+        batch_end = min(batch_start + _EMBED_BATCH_SIZE, total)
+        pct = 70 + int((batch_end / total) * 25)  # progress 70 → 95
+        _set_status(
+            conn_id,
+            status="indexing",
+            message=f"Embedding chunks {batch_end}/{total}...",
+            progress=pct,
+        )
+
+        for attempt in range(1, _EMBED_MAX_RETRIES + 1):
+            try:
+                if vectorstore is None:
+                    vectorstore = Chroma.from_documents(
+                        batch,
+                        embeddings,
+                        persist_directory=str(tmp_dir),
+                        collection_name=collection_name,
+                    )
+                else:
+                    vectorstore.add_documents(batch)
+                # Success — short pause before next batch
+                if batch_end < total:
+                    time.sleep(_EMBED_BATCH_DELAY)
+                break  # exit retry loop
+
+            except Exception as exc:  # noqa: BLE001
+                exc_str = str(exc)
+                # Parse "Please try again in Xs" from OpenAI 429 message
+                wait_sec: float = _EMBED_BATCH_DELAY * (2 ** attempt)  # exponential default
+                m = _re.search(r"try again in ([0-9.]+)s", exc_str)
+                if m:
+                    # Always honour OpenAI's suggested wait + 5s safety buffer
+                    wait_sec = max(float(m.group(1)) + 5.0, wait_sec)
+
+                if "rate_limit_exceeded" in exc_str or "429" in exc_str:
+                    logger.warning(
+                        "[db_indexer] Rate-limit hit on batch %d-%d (attempt %d/%d). "
+                        "Waiting %.1fs before retry...",
+                        batch_start, batch_end, attempt, _EMBED_MAX_RETRIES, wait_sec,
+                    )
+                    _set_status(
+                        conn_id,
+                        status="indexing",
+                        message=(
+                            f"OpenAI rate-limit — รอ {wait_sec:.0f}s แล้วลองใหม่ "
+                            f"(ครั้งที่ {attempt}/{_EMBED_MAX_RETRIES})..."
+                        ),
+                        progress=pct,
+                    )
+                    time.sleep(wait_sec)
+                    if attempt == _EMBED_MAX_RETRIES:
+                        raise RuntimeError(
+                            f"Embedding ล้มเหลวหลังลองซ้ำ {_EMBED_MAX_RETRIES} ครั้ง: {exc}"
+                        ) from exc
+                else:
+                    raise  # non-rate-limit error — propagate immediately
+
+
 def _run_index(conn_id: str, db_type: str, db_url: str, conn_name: str) -> None:
     try:
         _set_status(conn_id, status="indexing",
@@ -564,13 +659,10 @@ def _run_index(conn_id: str, db_type: str, db_url: str, conn_name: str) -> None:
             shutil.rmtree(tmp_dir)
         tmp_dir.mkdir(parents=True, exist_ok=True)
 
-        Chroma.from_documents(
-            all_docs,
-            OpenAIEmbeddings(
-                model=settings.openai_embed_model,
-                api_key=settings.openai_api_key,
-            ),
-            persist_directory=str(tmp_dir),
+        _embed_docs_to_chroma(
+            all_docs=all_docs,
+            tmp_dir=tmp_dir,
+            conn_id=conn_id,
             collection_name=f"db_{conn_id}",
         )
 
