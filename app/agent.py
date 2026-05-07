@@ -115,8 +115,10 @@ def _retrieve_all_docs(question: str) -> List[Document]:
             try:
                 scored = db_vs.similarity_search_with_relevance_scores(question, k=settings.top_k)
                 db_docs = [doc for doc, score in scored if score >= MIN_RELEVANCE_SCORE_DB]
-                if not db_docs:
-                    db_docs = [doc for doc, _ in scored]
+                # NOTE: No fallback for DB stores — if no rows score above the threshold
+                # it means the DB data is unrelated to this question.  Including
+                # irrelevant rows floods the context and causes the LLM to reply
+                # "not found" even when the document store has the real answer.
             except Exception:
                 db_docs = db_vs.similarity_search(question, k=settings.top_k)
             if disabled:

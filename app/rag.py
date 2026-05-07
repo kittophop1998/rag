@@ -148,12 +148,14 @@ class RAGEngine:
         store: Chroma,
         question: str,
         threshold: float = MIN_RELEVANCE_SCORE_DOC,
+        use_fallback: bool = True,
     ) -> List[Document]:
         """Search with a relevance threshold and return results sorted by score (best first).
 
-        Falls back to un-filtered top-K when ALL scores are below threshold
-        (common for short Thai queries where cosine similarity can be negative).
-        In that case the LLM prompt already guards against hallucination.
+        Falls back to un-filtered top-K when ALL scores are below threshold ONLY
+        when *use_fallback* is True (document store).  For DB stores this should
+        be False — including irrelevant DB rows floods the context and causes the
+        LLM to say "not found" even when the document store has the real answer.
         """
         try:
             scored = store.similarity_search_with_relevance_scores(
@@ -167,11 +169,11 @@ class RAGEngine:
                 len(filtered), len(scored), threshold,
                 scored[0][1] if scored else 0.0,
             )
-            # If nothing passed the threshold, fall back to raw top-K so that
-            # short/ambiguous Thai queries still get context.
-            if not filtered and scored:
+            # Fallback only for the document store: short/ambiguous Thai queries
+            # can produce negative cosine scores so we still want some context.
+            if not filtered and scored and use_fallback:
                 logger.debug(
-                    "No docs passed threshold %.2f — returning raw top-%d results",
+                    "No docs passed threshold %.2f — returning raw top-%d results (fallback)",
                     threshold, len(scored),
                 )
                 return [doc for doc, _ in scored]
@@ -218,7 +220,8 @@ class RAGEngine:
                         g for g, row in group_states.items() if not row.get("enabled", True)
                     }
                     db_docs = self._search_store(
-                        db_vs, question, threshold=MIN_RELEVANCE_SCORE_DB
+                        db_vs, question, threshold=MIN_RELEVANCE_SCORE_DB,
+                        use_fallback=False,
                     )
                     if disabled_groups:
                         db_docs = [
