@@ -150,34 +150,66 @@ class RAGEngine:
         threshold: float = MIN_RELEVANCE_SCORE_DOC,
         use_fallback: bool = True,
     ) -> List[Document]:
-        """Search with a relevance threshold and return results sorted by score (best first).
+        """Search with a relevance threshold, then apply per-source diversity cap.
 
-        Falls back to un-filtered top-K when ALL scores are below threshold ONLY
-        when *use_fallback* is True (document store).  For DB stores this should
-        be False — including irrelevant DB rows floods the context and causes the
-        LLM to say "not found" even when the document store has the real answer.
+        Strategy:
+        1. Fetch ``top_k * 4`` candidates (wide net) from ChromaDB.
+        2. Sort by score descending (best match first).
+        3. Filter by *threshold* — keep only relevance >= threshold.
+        4. Apply per-source cap (``settings.max_chunks_per_source``) so a single
+           document cannot occupy all slots and crowd out other sources.
+        5. Return at most ``settings.top_k`` diversified chunks.
+
+        Fallback (document store only, ``use_fallback=True``):
+        When ALL scores fall below the threshold — common for short / ambiguous
+        Thai queries — return the raw top-K rather than an empty list so the LLM
+        at least sees *some* context.
         """
+        from collections import defaultdict  # noqa: PLC0415
+
+        max_per_src = getattr(settings, "max_chunks_per_source", 3)
+        fetch_k = max(settings.top_k * 4, 20)
+
         try:
-            scored = store.similarity_search_with_relevance_scores(
-                question, k=settings.top_k
-            )
-            # Sort by score descending so best context comes first in the prompt
+            scored = store.similarity_search_with_relevance_scores(question, k=fetch_k)
+            # Best match first
             scored.sort(key=lambda x: x[1], reverse=True)
+
             filtered = [doc for doc, score in scored if score >= threshold]
+
             logger.debug(
                 "Store search: %d/%d docs passed threshold %.2f (top score: %.4f)",
                 len(filtered), len(scored), threshold,
                 scored[0][1] if scored else 0.0,
             )
-            # Fallback only for the document store: short/ambiguous Thai queries
-            # can produce negative cosine scores so we still want some context.
+
+            # Fallback for document store only
             if not filtered and scored and use_fallback:
                 logger.debug(
                     "No docs passed threshold %.2f — returning raw top-%d results (fallback)",
-                    threshold, len(scored),
+                    threshold, settings.top_k,
                 )
-                return [doc for doc, _ in scored]
-            return filtered
+                filtered = [doc for doc, _ in scored]
+
+            # ── Per-source diversity cap ─────────────────────────────────
+            # Prevent a single file from occupying all top_k slots.
+            # Uses doc_id if present, falls back to source path.
+            source_counts: dict[str, int] = defaultdict(int)
+            diversified: List[Document] = []
+            for doc in filtered:
+                src_key = doc.metadata.get("doc_id") or doc.metadata.get("source", "unknown")
+                if source_counts[src_key] < max_per_src:
+                    diversified.append(doc)
+                    source_counts[src_key] += 1
+                if len(diversified) >= settings.top_k:
+                    break
+
+            logger.info(
+                "Retrieval: %d chunks from %d source(s) (cap %d/src, top_k=%d)",
+                len(diversified), len(source_counts), max_per_src, settings.top_k,
+            )
+            return diversified
+
         except Exception:  # noqa: BLE001
             return store.similarity_search(question, k=settings.top_k)
 

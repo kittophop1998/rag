@@ -269,14 +269,25 @@ def _load_url_sources() -> List[Document]:
 
 
 def _split_documents(docs: List[Document]) -> List[Document]:
-    """Split documents into overlapping chunks suitable for embedding."""
+    """Split documents into overlapping chunks suitable for embedding.
+
+    Also stamps a ``doc_id`` metadata key (normalised source filename) on every
+    chunk so the retrieval layer can enforce per-source diversity limits.
+    """
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=settings.chunk_size,
         chunk_overlap=settings.chunk_overlap,
-        separators=["\n\n", "\n", " ", ""],
+        separators=["\n\n", "\n", "。", "。\n", " ", ""],
     )
     chunks = splitter.split_documents(docs)
-    logger.info("Split into %d chunk(s).", len(chunks))
+
+    # Stamp doc_id so retrieval can limit chunks-per-source
+    for chunk in chunks:
+        src = chunk.metadata.get("source", "unknown")
+        # Normalise to filename only (strip directory prefixes)
+        chunk.metadata["doc_id"] = Path(src).name if src != "unknown" else "unknown"
+
+    logger.info("Split into %d chunk(s) from %d source doc(s).", len(chunks), len(docs))
     return chunks
 
 

@@ -46,9 +46,10 @@ class Settings(BaseSettings):
 
     # ── RAG ───────────────────────────────────────────────────────────────
     documents_dir: Path = Path("./documents")
-    chunk_size: int = 1_000
-    chunk_overlap: int = 150
-    top_k: int = 5
+    chunk_size: int = 800          # เล็กลงเพื่อให้ context precise ขึ้น
+    chunk_overlap: int = 200       # overlap มากขึ้นเพื่อไม่ตัดกลางประโยค
+    top_k: int = 10                # ดึงมากขึ้นเพื่อให้หลายเอกสารมีโอกาส
+    max_chunks_per_source: int = 3 # จำกัด chunk ต่อ source ไม่ให้ doc เดียว dominate
 
     # ── Auth ──────────────────────────────────────────────────────────────
     admin_username: str = "admin"
