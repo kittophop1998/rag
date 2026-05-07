@@ -106,7 +106,16 @@ Schema (relevant tables only):
 กฎเพิ่มเติม:
 - ก่อนใช้ column ใด ให้ตรวจสอบให้มั่นใจว่า column นั้นมีอยู่จริงใน Schema
 - หา column ที่ต้องการใน Schema ไม่เจอ ให้ใช้เฉพาะ column ที่มั่นใจว่ามีจริง เช่น id, name
-- ใช้ FK annotations ใน Schema เป็นคำแนะนำในการ JOIN ตารางที่ถูกต้อง"""
+- ใช้ FK annotations ใน Schema เป็นคำแนะนำในการ JOIN ตารางที่ถูกต้อง
+- ถ้า Schema ที่ให้มาไม่มีข้อมูลเพียงพอตอบคำถามเลย ให้ตอบว่า: CLARIFY: <อธิบายสั้นๆ ว่าต้องการข้อมูลเพิ่มเติมอะไร>
+
+{entity_hints}
+
+ขั้นตอนการทำงาน (ให้เขียน reasoning เป็น SQL comment ก่อน SQL จริง):
+-- Step 1: Domain: <ระบุกลุ่มข้อมูลที่คำถามต้องการ>
+-- Step 2: Tables: <ชื่อตาราง> เพราะ <เหตุผลสั้นๆ>
+-- Step 3: JOIN: <FK ที่ใช้เชื่อม หรือ "ไม่มี JOIN">
+จากนั้นสร้าง SQL SELECT statement เท่านั้น"""
 
 # Prompt for Step 1 of two-step querying: identify relevant tables only.
 _TABLE_PLANNER_SYSTEM = """คุณคือผู้เชี่ยวชาญฐานข้อมูลที่วิเคราะห์คำถามภาษาไทยเพื่อระบุตารางที่จำเป็น
@@ -116,11 +125,24 @@ _TABLE_PLANNER_SYSTEM = """คุณคือผู้เชี่ยวชา�
 Schema ของฐานข้อมูล (ทุกตาราง):
 {schema}
 
+กฎสำคัญในการเลือกตาราง:
+1. ถ้าคำถามระบุชื่อตารางตรงๆ (เช่น "coupons", "orders", "products") ให้รวมตารางนั้นทุกกรณี
+2. ถ้าคำถามมีคำที่ตรงกับชื่อตาราง (แม้บางส่วน เช่น "coupon" ↔ "coupons") ให้รวมตารางนั้น
+3. ให้ดูจาก FK annotations เพื่อรวมตารางที่ต้อง JOIN ด้วย
+4. ห้ามเลือกตารางที่ดูเหมือน "เกี่ยวข้อง" แต่ไม่ได้ถูกถามโดยตรง
+
+{mandatory_hint}
+
 จากคำถามของผู้ใช้ ให้ระบุ **เฉพาะชื่อตาราง** ที่จำเป็นสำหรับการสร้าง SQL query
-- ถ้าต้องการ JOIN หลายตาราง ให้ใส่ครบทุกตาราง
-- ใช้ FK annotations ในการตัดสินใจว่าต้อง JOIN กับตารางใด
-- ตอบเป็น JSON array ของชื่อตารางเท่านั้น เช่น: ["orders", "customers", "products"]
-- ห้ามตอบอย่างอื่น ห้ามมีคำอธิบาย"""
+- ตอบเป็น JSON array ของชื่อตารางเท่านั้น เช่น: ["coupons", "coupons_code", "coupons_product"]
+- ห้ามตอบอย่างอื่น ห้ามมีคำอธิบาย
+
+
+ขั้นตอนการทำงาน:
+1. วิเคราะห์ว่าคำถามต้องการข้อมูลจากกลุ่ม (Domain) ใด
+2. เลือก Table ที่จำเป็นและตรวจสอบ Schema ว่ามี Column นั้นจริงหรือไม่
+3. เขียนคำอธิบายสั้นๆ ว่าทำไมถึง Join ตารางเหล่านี้
+4. สร้าง SQL SELECT statement เท่านั้น"""
 
 _MONGO_SYSTEM = """You are a read-only MongoDB expert.
 Your ONLY job is to generate find/aggregation queries for reading data.
@@ -160,6 +182,29 @@ _ANSWER_USER = """คำถาม: {question}
 {aggregate_summary}
 
 กรุณาสรุปคำตอบจากข้อมูลด้านบน (ไม่ต้องแสดง SQL ในคำตอบ)"""
+
+# Prompt for detecting named entities (proper nouns) in the user question.
+_ENTITY_DETECT_SYSTEM = """คุณคือผู้ช่วยวิเคราะห์คำถามภาษาไทยเพื่อดึง "ชื่อเฉพาะ" (Named Entities) ที่อาจเป็นค่าข้อมูลจริงใน Database
+ชื่อเฉพาะ ได้แก่: ชื่อบริษัท, ชื่อสินค้า, ชื่อบุคคล, ชื่อแบรนด์, ชื่อหมวดหมู่, รหัสอ้างอิง
+
+กฎ:
+- ตอบเป็น JSON array ของ string เท่านั้น เช่น: ["ABC", "สมชาย", "iPhone 15"]
+- ถ้าคำถามมีแต่คำทั่วไป (เช่น "ยอดขาย", "สินค้าทั้งหมด") ให้ตอบ: []
+- ห้ามตอบอย่างอื่นนอกจาก JSON array"""
+
+# Prompt for broadening a query that returned 0 rows.
+_BROADEN_SYSTEM = """You are a SQL expert. A query returned 0 rows, which means the WHERE conditions may be too strict.
+Analyse the query and rewrite it to be broader so the user can see nearby/similar data.
+
+Strategies:
+- Replace exact match (=) with LIKE '%value%' for string columns
+- Widen date ranges (e.g. last 90 days instead of last 30 days)
+- Remove low-confidence filter conditions that might be wrong
+- Keep the core aggregation / JOIN structure intact
+- Add LIMIT 200 if not present
+
+Output raw SQL only — no explanation, no markdown fences.
+ABSOLUTE RULES: Only SELECT statements. Use only columns that exist in the schema."""
 
 # ---------------------------------------------------------------------------
 # Engine
@@ -229,12 +274,36 @@ class TextToQueryEngine:
                 logger.info("[text_to_sql] Vanna generated %s query: %.120s", db_type, raw_query)
 
         if raw_query is None:
+            # ── 2c. Entity Resolution: discover actual DB values ──────────
+            entity_hints = ""
+            if db_type_l != "mongodb":
+                entity_hints = _resolve_entity_hints(
+                    question, schema, db_type_l, db_url
+                )
+                if entity_hints:
+                    logger.info("[text_to_sql] Entity hints resolved: %.200s", entity_hints)
+
             raw_query = _generate_query_with_openai(
                 question, db_type_l, schema,
                 semantic_context=semantic_context,
                 few_shots=few_shots,
+                entity_hints=entity_hints,
             )
             logger.info("[text_to_sql] OpenAI generated %s query: %.120s", db_type, raw_query)
+
+        # ── 2d. Clarification detection ───────────────────────────────────
+        if isinstance(raw_query, str) and raw_query.upper().startswith("CLARIFY:"):
+            clarification_msg = raw_query[len("CLARIFY:"):].strip()
+            logger.info("[text_to_sql] LLM requested clarification: %s", clarification_msg)
+            return {
+                "answer":      f"❓ {clarification_msg}",
+                "query":       "",
+                "db_type":     db_type,
+                "row_count":   0,
+                "rows":        [],
+                "using_vanna": using_vanna,
+                "needs_clarification": True,
+            }
 
         # ── 3. Security validation ─────────────────────────────────────────
         def _sec_validate(q: str) -> None:
@@ -288,6 +357,22 @@ class TextToQueryEngine:
 
         if last_exc is not None:
             raise RuntimeError(f"รัน query ไม่สำเร็จ: {last_exc}") from last_exc
+
+        # ── 4b. Empty-result self-correction (SQL only, one retry) ────────
+        if len(rows) == 0 and db_type_l != "mongodb":
+            logger.info("[text_to_sql] Zero rows returned — attempting broader query")
+            try:
+                broader_query = _broaden_empty_query(raw_query, question, db_type_l, schema)
+                _sec_validate(broader_query)
+                broader_rows = execute_query(db_type_l, db_url, broader_query)
+                if broader_rows:
+                    logger.info(
+                        "[text_to_sql] Broader query found %d rows", len(broader_rows)
+                    )
+                    rows = broader_rows
+                    raw_query = broader_query  # surface the broader query to the user
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[text_to_sql] Broader query attempt failed: %s", exc)
 
         # ── 5. Summarise with OpenAI (SQL embedded in the answer) ──────────
         preview_rows = rows[:MAX_RESULT_PREVIEW_ROWS]
@@ -343,6 +428,7 @@ def _generate_query_with_openai(
     schema: str,
     semantic_context: str = "",
     few_shots: str = "",
+    entity_hints: str = "",
 ) -> str:
     """Generate SQL or MongoDB query using the OpenAI Python SDK.
 
@@ -377,6 +463,7 @@ def _generate_query_with_openai(
                 current_date=date.today().isoformat(),
                 semantic_context=semantic_context or "(ไม่มีคำอธิบายเพิ่มเติม)",
                 few_shots=few_shots or _DEFAULT_FEW_SHOTS,
+                entity_hints=entity_hints or "",
             )
 
         resp = client.chat.completions.create(
@@ -519,6 +606,30 @@ def _count_schema_tables(schema: str) -> int:
     return len(re.findall(r"^Table `", schema, re.MULTILINE))
 
 
+def _extract_literal_table_matches(question: str, schema: str) -> list[str]:
+    """Return table names that literally appear in the question text.
+
+    Handles both exact matches (e.g. "coupons") and singular/plural variants
+    (e.g. "coupon" matches "coupons").  Case-insensitive.
+    This acts as a hard constraint passed to the Table Planner to prevent it
+    from substituting a semantically similar but incorrect table.
+    """
+    # Collect all table names from schema
+    all_tables = re.findall(r"Table\s+`([^`]+)`", schema)
+    q_lower = question.lower()
+    matched: list[str] = []
+    for tbl in all_tables:
+        tbl_lower = tbl.lower()
+        # Exact match or plural/singular variant: "coupon" in "coupons", vice versa
+        if (
+            tbl_lower in q_lower
+            or tbl_lower.rstrip("s") in q_lower
+            or (tbl_lower + "s") in q_lower
+        ):
+            matched.append(tbl)
+    return matched
+
+
 def _plan_relevant_tables(
     question: str,
     schema: str,
@@ -527,8 +638,15 @@ def _plan_relevant_tables(
 ) -> list[str] | None:
     """Step 1 of Two-Step Querying: ask AI which tables are needed.
 
-    Returns a list of table names to focus on, or None to skip (either the
-    schema is small or the LLM call failed).
+    Strategy:
+    1. First do a cheap literal-match pass to find tables explicitly named in
+       the question (e.g. "coupons" → `coupons`, `coupons_code`, `coupons_product`).
+       These become *mandatory* tables the planner must include.
+    2. Call the LLM to pick additional related tables (for JOINs, FK chains).
+    3. Merge mandatory + AI-chosen tables and return the union.
+
+    Returns a list of table names to focus on, or None to skip (small schema
+    or LLM call failed).
     """
     if db_type_l == "mongodb":
         return None  # MongoDB queries are schemaless; skip planning
@@ -536,12 +654,23 @@ def _plan_relevant_tables(
     if _count_schema_tables(schema) < _MIN_TABLES_FOR_PLANNING:
         return None  # Schema is small enough to send in full
 
+    # ── Step 1a: Literal keyword match (cheap, no AI needed) ─────────────
+    mandatory = _extract_literal_table_matches(question, schema)
+    mandatory_hint = ""
+    if mandatory:
+        mandatory_hint = (
+            f"\n⚠️ คำถามระบุตารางเหล่านี้โดยตรง — ต้องรวมทุกตารางนี้เสมอ: "
+            f"{json.dumps(mandatory, ensure_ascii=False)}"
+        )
+        logger.info("[text_to_sql] Mandatory tables from literal match: %s", mandatory)
+
+    # ── Step 1b: AI Planner for JOIN / FK resolution ──────────────────────
     client = get_client()
-    # Build the smallest possible schema for the planner: just table + column names.
     planner_schema = _make_planner_schema(schema)[:MAX_PLANNER_SCHEMA_CHARS]
     system_msg = _TABLE_PLANNER_SYSTEM.format(
         semantic_context=semantic_context or "(ไม่มีคำอธิบายเพิ่มเติม)",
         schema=planner_schema,
+        mandatory_hint=mandatory_hint,
     )
     try:
         resp = client.chat.completions.create(
@@ -556,11 +685,20 @@ def _plan_relevant_tables(
         raw = _strip_fence((resp.choices[0].message.content or "").strip())
         parsed = json.loads(raw)
         if isinstance(parsed, list) and parsed:
-            tables = [str(t) for t in parsed if t]
-            logger.info("[text_to_sql] Two-step plan picked %d tables: %s", len(tables), tables)
-            return tables
+            ai_tables = [str(t) for t in parsed if t]
+            # Merge: mandatory always wins, AI adds FK-related extras
+            merged = list(dict.fromkeys(mandatory + [t for t in ai_tables if t not in mandatory]))
+            logger.info(
+                "[text_to_sql] Table plan: mandatory=%s ai=%s merged=%s",
+                mandatory, ai_tables, merged,
+            )
+            return merged
     except Exception as exc:  # noqa: BLE001
-        logger.warning("[text_to_sql] Table planner failed (%s) — using full schema", exc)
+        logger.warning("[text_to_sql] Table planner failed (%s) — using literal matches", exc)
+
+    # Fallback: return mandatory matches only (no AI)
+    if mandatory:
+        return mandatory
     return None
 
 
@@ -672,8 +810,165 @@ def _build_aggregate_summary(rows: list[dict[str, Any]], preview_limit: int) -> 
     return json.dumps(summary, ensure_ascii=False, default=str)
 
 
-def _try_vanna(
+# ---------------------------------------------------------------------------
+# Entity Resolution helpers
+# ---------------------------------------------------------------------------
+
+def _parse_text_columns(schema: str) -> dict[str, list[str]]:
+    """Parse schema to return {table: [text_column_names]}.
+
+    Identifies columns with string types (VARCHAR, CHAR, TEXT, NVARCHAR)
+    suitable for LIKE-based value discovery.
+    """
+    result: dict[str, list[str]] = {}
+    _TEXT_TYPES = re.compile(r"\b(VAR)?CHAR|NVARCHAR|TEXT\b", re.I)
+    for line in schema.splitlines():
+        m = re.match(r"Table\s+`([^`]+)`\s*:\s*(.+)", line)
+        if not m:
+            continue
+        table = m.group(1)
+        col_block = m.group(2)
+        text_cols: list[str] = []
+        # Each column: "colname (TYPE...)"
+        for entry in re.finditer(r"([A-Za-z_]\w*)\s+\(([^)]+)\)", col_block):
+            col_name = entry.group(1)
+            col_type = entry.group(2)
+            if col_name.upper() in ("PK", "FK"):
+                continue
+            if _TEXT_TYPES.search(col_type):
+                text_cols.append(col_name)
+        if text_cols:
+            result[table] = text_cols
+    return result
+
+
+def _detect_named_entities(question: str) -> list[str]:
+    """Use OpenAI to extract named entities (proper nouns) from the question.
+
+    Returns a list of strings; empty list if no entities found or LLM call fails.
+    """
+    try:
+        client = get_client()
+        resp = client.chat.completions.create(
+            model=settings.openai_chat_model,
+            temperature=0,
+            max_tokens=128,
+            messages=[
+                {"role": "system", "content": _ENTITY_DETECT_SYSTEM},
+                {"role": "user",   "content": question},
+            ],
+        )
+        raw = _strip_fence((resp.choices[0].message.content or "").strip())
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            return [str(e) for e in parsed if e]
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[entity_resolution] entity detect failed: %s", exc)
+    return []
+
+
+def _resolve_entity_hints(
     question: str,
+    schema: str,
+    db_type_l: str,
+    db_url: str,
+) -> str:
+    """Detect named entities in the question and search the DB for actual values.
+
+    Strategy:
+    1. Ask LLM to extract named entities from the question.
+    2. For each entity, run `SELECT DISTINCT col FROM table WHERE col LIKE '%entity%' LIMIT 5`
+       on every text column across all tables.
+    3. Return a formatted hint string for the SQL generator to use.
+    """
+    entities = _detect_named_entities(question)
+    if not entities:
+        return ""
+
+    logger.info("[entity_resolution] Detected entities: %s", entities)
+    text_cols = _parse_text_columns(schema)
+    if not text_cols:
+        return ""
+
+    hints: list[str] = []
+
+    # Determine LIKE syntax by dialect
+    dialect_like = "LIKE"  # standard
+
+    for entity in entities[:5]:  # cap at 5 entities to limit DB round-trips
+        found_any = False
+        for table, cols in list(text_cols.items())[:20]:  # cap tables
+            for col in cols[:4]:  # cap columns per table
+                try:
+                    if db_type_l == "mssql":
+                        discovery_sql = (
+                            f"SELECT DISTINCT TOP 5 [{col}] FROM [{table}] "
+                            f"WHERE [{col}] LIKE N'%{entity}%'"
+                        )
+                    else:
+                        discovery_sql = (
+                            f"SELECT DISTINCT `{col}` FROM `{table}` "
+                            f"WHERE `{col}` LIKE '%{entity}%' LIMIT 5"
+                        )
+                    rows = execute_query(db_type_l, db_url, discovery_sql)
+                    if rows:
+                        values = [str(list(r.values())[0]) for r in rows if r]
+                        hint = (
+                            f"- ค้นหา '{entity}' พบใน `{table}`.`{col}`: "
+                            + ", ".join(f'"{v}"' for v in values[:5])
+                        )
+                        hints.append(hint)
+                        found_any = True
+                        logger.debug("[entity_resolution] %s", hint)
+                        break  # found in this col, move to next table
+                except Exception:  # noqa: BLE001
+                    pass
+            if found_any:
+                break  # found entity in some table, stop scanning
+
+    if not hints:
+        return ""
+    return (
+        "\n--- Entity Resolution Hints (ค่าจริงใน Database) ---\n"
+        + "\n".join(hints)
+        + "\nให้ใช้ค่าที่พบข้างต้นใน WHERE clause แทนการเดา\n"
+        + "--- สิ้นสุด Entity Hints ---"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Empty-result broadening helper
+# ---------------------------------------------------------------------------
+
+def _broaden_empty_query(
+    bad_query: str,
+    original_question: str,
+    db_type_l: str,
+    schema: str,
+) -> str:
+    """Ask OpenAI to rewrite a query that returned 0 rows with looser conditions."""
+    client = get_client()
+    dialect = _DIALECT_MAP.get(db_type_l, "SQL")
+    schema_min = _minify_schema(schema)[:MAX_SCHEMA_CHARS]
+    user_msg = (
+        f"Original question: {original_question}\n\n"
+        f"Query that returned 0 rows:\n{bad_query}\n\n"
+        f"Schema ({dialect}):\n{schema_min}\n\n"
+        "Rewrite with broader conditions so the user can see nearby data."
+    )
+    resp = get_client().chat.completions.create(
+        model=settings.openai_chat_model,
+        temperature=0,
+        max_tokens=1024,
+        messages=[
+            {"role": "system", "content": _BROADEN_SYSTEM},
+            {"role": "user",   "content": user_msg},
+        ],
+    )
+    return _strip_fence((resp.choices[0].message.content or "").strip())
+
+
+def _try_vanna(    question: str,
     conn_id: str,
     db_type: str,
     db_url: str,

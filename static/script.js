@@ -1698,7 +1698,14 @@ class App {
                     <span class="db-index-badge db-index-none" id="idx-badge-${db.id}">
                       ยังไม่ได้ Index
                     </span>
+                    <button class="idx-tbl-toggle hidden" id="idx-tbl-toggle-${db.id}" title="ดู/ซ่อน ตารางที่ Index ไว้">
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+                      </svg>
+                      ดูตาราง
+                    </button>
                   </div>
+                  <div class="idx-tbl-panel hidden" id="idx-tbl-panel-${db.id}"></div>
                 </div>
               </div>
               <div class="db-item-actions">
@@ -1969,20 +1976,107 @@ class App {
             this._applyIndexStatus(id, { status: 'none', message: 'ยังไม่ได้ Index' });
           } catch (err) { toast(`ลบไม่สำเร็จ: ${err.message}`, 'error'); }
         });
+
+        // ── Show "ดูตาราง" toggle button ─────────────────────────
+        const toggleBtn = document.getElementById(`idx-tbl-toggle-${id}`);
+        if (toggleBtn) {
+          toggleBtn.classList.remove('hidden');
+          // clone to clear previous listeners
+          const fresh = toggleBtn.cloneNode(true);
+          toggleBtn.replaceWith(fresh);
+          fresh.addEventListener('click', () => {
+            const panel = document.getElementById(`idx-tbl-panel-${id}`);
+            if (!panel) return;
+            const open = !panel.classList.contains('hidden');
+            panel.classList.toggle('hidden', open);
+            fresh.classList.toggle('idx-tbl-toggle--open', !open);
+          });
+        }
+
+        // ── Render table panel ────────────────────────────────────
+        const panel = document.getElementById(`idx-tbl-panel-${id}`);
+        if (panel) {
+          const gm       = s.group_map  || {};  // group → [table, ...]
+          const tblRows  = s.table_rows || {};  // table → row count
+
+          // Build a flat sorted list: { table, group, rows }
+          const grouped  = {};
+          for (const [grp, tables] of Object.entries(gm)) {
+            for (const t of tables) {
+              grouped[t] = grp;
+            }
+          }
+          // Also include tables that appear in table_rows but not group_map
+          for (const t of Object.keys(tblRows)) {
+            if (!(t in grouped)) grouped[t] = '—';
+          }
+
+          const allTables = Object.entries(grouped)
+            .map(([t, g]) => ({ table: t, group: g, rows: tblRows[t] ?? null }))
+            .sort((a, b) => {
+              if (a.group < b.group) return -1;
+              if (a.group > b.group) return 1;
+              return a.table.localeCompare(b.table, 'th');
+            });
+
+          if (!allTables.length) {
+            panel.innerHTML = `<p class="idx-tbl-empty">ไม่พบข้อมูลตาราง</p>`;
+          } else {
+            // Group by domain for header rows
+            const groupColors = ['#818CF8','#34D399','#FBBF24','#F87171','#60A5FA','#A78BFA','#2DD4BF'];
+            const groupList   = [...new Set(allTables.map(r => r.group))];
+            const colorMap    = Object.fromEntries(groupList.map((g, i) => [g, groupColors[i % groupColors.length]]));
+
+            const rows = allTables.map(r => {
+              const color = colorMap[r.group] || '#94A3B8';
+              return `
+                <tr class="idx-tbl-row">
+                  <td class="idx-tbl-name"><code>${esc(r.table)}</code></td>
+                  <td class="idx-tbl-group"><span class="idx-grp-chip" style="--chip-color:${color}">${esc(r.group)}</span></td>
+                  <td class="idx-tbl-rows">${r.rows !== null ? r.rows.toLocaleString() + ' rows' : '—'}</td>
+                </tr>`;
+            }).join('');
+
+            panel.innerHTML = `
+              <div class="idx-tbl-header">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                ตารางทั้งหมดที่ถูก Index <span class="idx-tbl-count">${allTables.length} ตาราง / ${groupList.length} กลุ่ม</span>
+              </div>
+              <div class="idx-tbl-scroll">
+                <table class="idx-tbl-table">
+                  <thead>
+                    <tr>
+                      <th>ชื่อตาราง</th>
+                      <th>กลุ่ม (Domain)</th>
+                      <th>จำนวน Rows</th>
+                    </tr>
+                  </thead>
+                  <tbody>${rows}</tbody>
+                </table>
+              </div>`;
+          }
+        }
         break;
       }
       case 'indexing':
         badge.classList.add('db-index-running');
         badge.innerHTML = `<span class="idx-spinner"></span> ${esc(s.message || 'กำลัง Index...')}${s.progress ? ` (${s.progress}%)` : ''}`;
+        // Hide table panel while re-indexing
+        document.getElementById(`idx-tbl-toggle-${id}`)?.classList.add('hidden');
+        document.getElementById(`idx-tbl-panel-${id}`)?.classList.add('hidden');
         setTimeout(() => API.getIndexStatus(id).then(ns => this._applyIndexStatus(id, ns)).catch(() => {}), 3000);
         break;
       case 'error':
         badge.classList.add('db-index-error');
         badge.textContent = `⚠ ${s.message || 'เกิดข้อผิดพลาด'}`;
+        document.getElementById(`idx-tbl-toggle-${id}`)?.classList.add('hidden');
+        document.getElementById(`idx-tbl-panel-${id}`)?.classList.add('hidden');
         break;
       default:
         badge.classList.add('db-index-none');
         badge.textContent = 'ยังไม่ได้ Index';
+        document.getElementById(`idx-tbl-toggle-${id}`)?.classList.add('hidden');
+        document.getElementById(`idx-tbl-panel-${id}`)?.classList.add('hidden');
     }
   }
   async _handleDbIndex(id) {
